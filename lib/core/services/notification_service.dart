@@ -37,7 +37,7 @@ class NotificationService {
     
     // 1. Configurar Local Notifications (Para Android/iOS)
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@drawable/ic_notification');
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     
     const InitializationSettings initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
@@ -121,7 +121,7 @@ class NotificationService {
               _channel.id,
               _channel.name,
               channelDescription: _channel.description,
-              icon: '@drawable/ic_notification',
+              icon: '@mipmap/ic_launcher',
               importance: Importance.max,
               priority: Priority.high,
             ),
