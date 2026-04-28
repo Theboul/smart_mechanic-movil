@@ -47,6 +47,10 @@ class ActiveEmergencyStatus extends ConsumerWidget {
           ),
           const SizedBox(height: 30),
           _buildProgressStepper(),
+          if (incident.resumenIa != null) ...[
+            const SizedBox(height: 24),
+            _buildAiAnalysis(),
+          ],
           const SizedBox(height: 30),
           if (incident.workshopId != null) _buildWorkshopInfo(),
           const SizedBox(height: 20),
@@ -73,6 +77,7 @@ class ActiveEmergencyStatus extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8), // Pequeño margen extra al final de la tarjeta
         ],
       ),
     );
@@ -311,6 +316,120 @@ class ActiveEmergencyStatus extends ConsumerWidget {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildAiAnalysis() {
+    final hasHighGravity = incident.analisisConsolidado?.toUpperCase().contains('ALTA') ?? false;
+    final accentColor = hasHighGravity ? Colors.redAccent : Colors.blueAccent;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accentColor.withValues(alpha: 0.15),
+            Colors.white.withValues(alpha: 0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: accentColor.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  color: accentColor,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: const Text(
+                  'DIAGNÓSTICO IA',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Spacer(),
+              if (hasHighGravity)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'CRÍTICO',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            incident.resumenIa ?? '',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+          if (incident.analisisConsolidado != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Divider(color: Colors.white10, height: 1),
+            ),
+            Text(
+              incident.analisisConsolidado!,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

@@ -2,50 +2,94 @@ import 'package:flutter/material.dart';
 import 'dart:developer';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../features/identity/data/auth_repository.dart';
+import '../../features/identity/presentation/providers/auth_provider.dart';
+import '../router/app_router.dart';
+
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // Esta función DEBE ser global y de alto nivel
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  log("Mensaje en segundo plano: ${message.messageId}");
+  log("📩 PUSH (Background): ${message.messageId}");
 }
 
 class NotificationService {
   final Ref _ref;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
   GlobalKey<ScaffoldMessengerState>? _messengerKey;
+
+  // Definición del canal para Android
+  static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
+    'high_importance_channel',
+    'Notificaciones de Emergencia',
+    description: 'Este canal se usa para alertas críticas y actualizaciones de S.O.S.',
+    importance: Importance.max,
+    playSound: true,
+    enableVibration: true,
+  );
 
   NotificationService(this._ref);
 
   Future<void> initialize(GlobalKey<ScaffoldMessengerState> key) async {
     _messengerKey = key;
     
+    // 1. Configurar Local Notifications (Para Android/iOS)
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@drawable/ic_notification');
+    
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+
+    await _localNotifications.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (details) {
+        // Manejar toque en notificación local (foreground)
+        // Aquí podríamos disparar la navegación similar a onMessageOpenedApp
+      },
+    );
+
+    // 2. Crear el canal en Android
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_channel);
+
+    // 3. Escuchar cambios de autenticación para sincronizar el token
+    _ref.listen(authProvider, (previous, next) {
+      if (next.status == AuthStatus.authenticated && previous?.status != AuthStatus.authenticated) {
+        log('👤 NOTIFICACIONES: Usuario autenticado detectado. Sincronizando token...');
+        _fcm.getToken().then((token) {
+          if (token != null) syncToken(token);
+        });
+      }
+    });
+
     // Registrar el manejador de segundo plano
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 1. Solicitar permisos
+    // 4. Solicitar permisos (OS + FCM)
+    log('🔔 NOTIFICACIONES: Solicitando permisos...');
+    final osStatus = await Permission.notification.request();
+    
     NotificationSettings settings = await _fcm.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      log('Usuario otorgó permisos de notificación');
-      print('🔔 NOTIFICACIONES: Permisos autorizados');
+    if (settings.authorizationStatus == AuthorizationStatus.authorized || osStatus.isGranted) {
+      log('✅ NOTIFICACIONES: Permisos autorizados');
       
-      // 2. Obtener el Token
       String? token = await _fcm.getToken();
       if (token != null) {
-        log('FCM Token: $token');
-        print('🔑 FCM TOKEN: $token');
-        await syncToken(token);
+        log('🔑 FCM TOKEN: $token');
       }
 
-      // 3. Configurar listeners
-      _setupForegroundService();
+      _setupNotificationListeners();
     } else {
-      log('Usuario denegó los permisos de notificación');
-      print('❌ NOTIFICACIONES: Permisos denegados');
+      log('❌ NOTIFICACIONES: Permisos denegados');
     }
   }
 
@@ -53,50 +97,81 @@ class NotificationService {
     try {
       final authRepo = _ref.read(authRepositoryProvider);
       await authRepo.updateFcmToken(token);
-      log('Token sincronizado con el servidor');
+      log('✅ NOTIFICACIONES: Token sincronizado con el servidor');
     } catch (e) {
-      log('Error al sincronizar token: $e');
+      log('❌ NOTIFICACIONES: Error de sincronización: $e');
     }
   }
 
-  void _setupForegroundService() {
-    // Escuchar notificaciones cuando la app está abierta (Primer Plano)
+  void _setupNotificationListeners() {
+    // 1. App en Primer Plano
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      final title = message.notification?.title ?? 'Notificación';
-      final body = message.notification?.body ?? '';
-      
-      log('Mensaje recibido en primer plano: $title');
+      final notification = message.notification;
 
-      // Mostrar un SnackBar visual porque Android NO lo muestra en foreground por defecto
-      _messengerKey?.currentState?.showSnackBar(
-        SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              if (body.isNotEmpty) Text(body),
-            ],
+      log('📩 PUSH (Foreground): ${notification?.title}');
+
+      // Si hay notificación, mostrarla usando LocalNotifications para que aparezca arriba
+      if (notification != null) {
+        _localNotifications.show(
+          notification.hashCode,
+          notification.title,
+          notification.body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              _channel.id,
+              _channel.name,
+              channelDescription: _channel.description,
+              icon: '@drawable/ic_notification',
+              importance: Importance.max,
+              priority: Priority.high,
+            ),
           ),
-          backgroundColor: const Color(0xFF1E293B),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'VER',
-            textColor: Colors.blueAccent,
-            onPressed: () {
-              // Lógica para ir a la pantalla correspondiente
-            },
-          ),
-        ),
-      );
+          payload: message.data.toString(),
+        );
+
+        // También mostramos un SnackBar para redundancia visual y acción rápida
+        _showForegroundSnackBar(message);
+      }
     });
 
-    // Escuchar cuando el usuario toca la notificación y la app se abre
+    // 2. App abierta desde Notificación (Background/Terminated)
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      log('El usuario tocó la notificación: ${message.data}');
-      // Aquí puedes navegar a una pantalla específica según los datos del mensaje
+      log('🛤️ NAVEGACIÓN: App abierta desde notificación');
+      _handleNotificationNavigation(message);
     });
+  }
+
+  void _showForegroundSnackBar(RemoteMessage message) {
+    final title = message.notification?.title ?? 'Notificación';
+    _messengerKey?.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'VER',
+          onPressed: () => _handleNotificationNavigation(message),
+        ),
+      ),
+    );
+  }
+
+  void _handleNotificationNavigation(RemoteMessage message) {
+    final type = message.data['type'];
+    final router = _ref.read(appRouterProvider);
+
+    log('🛤️ NAVEGACIÓN: Tipo detectado -> $type');
+
+    switch (type) {
+      case 'ANALYSIS_COMPLETED':
+      case 'WORKSHOP_ASSIGNED':
+      case 'AI_RESPONSE':
+        // Usamos go en lugar de push para evitar duplicar la pantalla si ya estamos ahí
+        router.go('/ai-analysis');
+        break;
+      default:
+        router.go('/');
+    }
   }
 }
 

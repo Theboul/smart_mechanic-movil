@@ -25,4 +25,8 @@ class EvidenceRepository {
     final response = await _dio.post('/api/v1/emergencies/$incidentId/evidence', data: formData);
     return response.data;
   }
+
+  Future<void> processIncident(String incidentId) async {
+    await _dio.post('/api/v1/emergencies/$incidentId/process');
+  }
 }

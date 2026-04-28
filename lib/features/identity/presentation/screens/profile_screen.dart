@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 //import 'package:go_router/go_router.dart';
@@ -155,10 +156,54 @@ class ProfileScreen extends ConsumerWidget {
           side: const BorderSide(color: Colors.redAccent),
         ),
         onPressed: () async {
-          print('🖱️ UI: Botón de logout presionado');
-          // Solo cerramos la sesión. El RouterNotifier detectará el cambio
-          // y nos mandará al login automáticamente por la regla de redirección.
-          await ref.read(authProvider.notifier).logout();
+          log('🖱️ UI: Botón de logout presionado');
+
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E293B),
+              title: const Text(
+                '¿Cerrar Sesión?',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: const Text(
+                '¿Estás seguro de que deseas salir de tu cuenta?',
+                style: TextStyle(color: Colors.white70),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text(
+                    'CANCELAR',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text(
+                    'CERRAR SESIÓN',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+
+          if (confirm == true && context.mounted) {
+            // Mostrar SnackBar de despedida
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Cerrando sesión...'),
+                backgroundColor: Color(0xFF1E293B),
+                duration: Duration(seconds: 1),
+              ),
+            );
+
+            await ref.read(authProvider.notifier).logout();
+          }
         },
         child: const Text('CERRAR SESIÓN'),
       ),

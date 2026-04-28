@@ -24,7 +24,8 @@ class SosScreen extends ConsumerStatefulWidget {
   ConsumerState<SosScreen> createState() => _SosScreenState();
 }
 
-class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserver {
+class _SosScreenState extends ConsumerState<SosScreen>
+    with WidgetsBindingObserver {
   String? _selectedVehicleId;
   Timer? _statusTimer;
 
@@ -64,12 +65,16 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
   }
 
   Future<void> _requestPermissions() async {
+    // Pedimos permisos de forma escalonada para no saturar el sistema
     await Permission.location.request();
+    await Future.delayed(const Duration(milliseconds: 300));
     await Permission.microphone.request();
+    await Future.delayed(const Duration(milliseconds: 300));
     await Permission.camera.request();
+    
     if (!kIsWeb) {
+      await Future.delayed(const Duration(milliseconds: 300));
       await Permission.photos.request();
-      await Permission.storage.request();
     }
   }
 
@@ -115,7 +120,9 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
         error: (error, _) => _showSnackBar('Error: $error', Colors.redAccent),
         data: (incident) {
           // 1. Detección de nuevo SOS enviado
-          if (incident != null && previous is AsyncLoading && incident.estado == 'PENDIENTE') {
+          if (incident != null &&
+              previous is AsyncLoading &&
+              incident.estado == 'PENDIENTE') {
             _showSnackBar('¡S.O.S enviado! Ayuda en camino.', Colors.green);
             context.push('/evidence', extra: {'incidentId': incident.id});
           }
@@ -134,7 +141,10 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
               if (newStatus == 'EN_CAMINO') {
                 _showSnackBar('🚀 ¡El técnico va en camino!', Colors.blue);
               } else if (newStatus == 'EN_PROGRESO') {
-                _showSnackBar('🔧 El técnico ha llegado. Iniciando reparación.', Colors.orange);
+                _showSnackBar(
+                  '🔧 El técnico ha llegado. Iniciando reparación.',
+                  Colors.orange,
+                );
               } else if (newStatus == 'COMPLETADO') {
                 _showSuccessDialog(context);
               }
@@ -151,7 +161,7 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
       }
     });
 
-    // Lógica para usuarios nuevos
+    // Lógica para usuarios nuevos (Solo SnackBar, el Router maneja la navegación)
     ref.listen(vehicleListProvider, (previous, next) {
       next.whenData((vehicles) {
         if (vehicles.isEmpty && authState.status == AuthStatus.authenticated) {
@@ -159,7 +169,6 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
             '¡Bienvenido! Registra tu primer vehículo.',
             Colors.blueAccent,
           );
-          context.push('/garage');
         }
       });
     });
@@ -201,7 +210,9 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
                           ),
                           error: (e, _) => _buildSosHome(emergencyState),
                         ),
-                        const SizedBox(height: 100), // Espacio extra para scroll
+                        const SizedBox(
+                          height: 120,
+                        ), // Espacio extra para scroll y evitar que el FAB tape botones
                       ],
                     ),
                   ),
@@ -211,20 +222,25 @@ class _SosScreenState extends ConsumerState<SosScreen> with WidgetsBindingObserv
           ),
         ],
       ),
-      floatingActionButton: emergencyState.when(
-        data: (incident) => incident == null 
-          ? FloatingActionButton.extended(
-              onPressed: () => context.push('/ai-analysis'),
-              backgroundColor: const Color(0xFF3B82F6),
-              icon: const Icon(Icons.smart_toy_rounded, color: Colors.white),
-              label: const Text(
-                'ASISTENTE IA',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 75), // Elevar el botón para no tapar la nav bar
+        child: emergencyState.when(
+          data: (incident) => FloatingActionButton.extended(
+            onPressed: () => context.push('/ai-analysis'),
+            backgroundColor: const Color(0xFF3B82F6),
+            elevation: 4,
+            icon: const Icon(Icons.smart_toy_rounded, color: Colors.white),
+            label: const Text(
+              'IA',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
-            )
-          : null, // Ocultar si hay emergencia para que no tape el botón de cancelar
-        loading: () => null,
-        error: (_, __) => null,
+            ),
+          ),
+          loading: () => null,
+          error: (_, _) => null,
+        ),
       ),
       bottomNavigationBar: SosBottomNav(
         currentIndex: 0,

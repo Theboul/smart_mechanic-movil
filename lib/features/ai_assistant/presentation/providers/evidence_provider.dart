@@ -98,6 +98,9 @@ class EvidenceNotifier extends Notifier<EvidenceState> {
           type: 'audio',
         );
       }
+      
+      // Gatillar el análisis de IA y asignación de taller una sola vez
+      await repository.processIncident(incidentId);
 
       state = state.copyWith(isSuccess: true);
     } catch (e) {

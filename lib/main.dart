@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -10,18 +11,23 @@ final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Capturar errores de Flutter
+  FlutterError.onError = (details) {
+    log('❌ FLUTTER ERROR: ${details.exception}');
+    log('📜 STACK: ${details.stack}');
+    FlutterError.presentError(details);
+  };
+
   await Firebase.initializeApp();
   await dotenv.load(fileName: ".env");
-  
-  final container = ProviderContainer();
-  await container.read(notificationServiceProvider).initialize(scaffoldMessengerKey);
 
-  runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const MyApp(),
-    ),
-  );
+  final container = ProviderContainer();
+  await container
+      .read(notificationServiceProvider)
+      .initialize(scaffoldMessengerKey);
+
+  runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
 }
 
 class MyApp extends ConsumerWidget {

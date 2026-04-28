@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,7 +25,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final authState = ref.read(authProvider);
       final vehicleState = ref.read(vehicleListProvider);
 
-      print('🛤️ ROUTER: Redirecting... Location: ${state.uri.path}, Status: ${authState.status}');
+      log('🛤️ ROUTER: Redirecting... Location: ${state.uri.path}, Status: ${authState.status}');
 
       // 0. Si está cargando el token inicial, no redirigir aún
       if (authState.status == AuthStatus.initial) return null;

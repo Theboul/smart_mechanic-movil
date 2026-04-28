@@ -41,8 +41,14 @@ class ChatNotifier extends Notifier<ChatState> {
   }
 
   void initializeWithContext(String contextText) {
+    // Evitar duplicados si el último mensaje ya es el mismo análisis
+    if (state.messages.isNotEmpty && state.messages.last.text == contextText) {
+      return;
+    }
+
     state = state.copyWith(
       messages: [
+        ...state.messages,
         ChatMessage(
           text: contextText,
           role: MessageRole.assistant,

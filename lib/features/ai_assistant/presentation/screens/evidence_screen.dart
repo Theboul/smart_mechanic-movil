@@ -29,7 +29,7 @@ class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pickImage(ImageSource.camera));
+    // Ya no disparamos la cámara automáticamente para evitar confusión al entrar desde notificaciones
   }
 
   @override
