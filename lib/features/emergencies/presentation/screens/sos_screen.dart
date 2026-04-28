@@ -127,12 +127,20 @@ class _SosScreenState extends ConsumerState<SosScreen>
             context.push('/evidence', extra: {'incidentId': incident.id});
           }
 
-          // 2. Detección de emergencia finalizada o cancelada
+          // 2. Detección de emergencia finalizada o cancelada (cuando desaparece del servidor)
           if (incident == null && previous?.value != null) {
             ref.invalidate(evidenceProvider);
+            
+            final oldStatus = previous!.value!.estado;
+            // Si estaba siendo atendida y de repente desaparece, significa que el técnico la finalizó
+            if (oldStatus == 'EN_PROGRESO' || oldStatus == 'EN_CAMINO' || oldStatus == 'ASIGNADO') {
+              _showSuccessDialog(context);
+            } else {
+              _showSnackBar('La emergencia ha finalizado o fue cancelada.', Colors.orangeAccent);
+            }
           }
 
-          // 3. Notificaciones de cambio de estado
+          // 3. Notificaciones de cambio de estado (mientras sigue activa)
           if (incident != null && previous?.value != null) {
             final oldStatus = previous!.value!.estado;
             final newStatus = incident.estado;
@@ -146,6 +154,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
                   Colors.orange,
                 );
               } else if (newStatus == 'COMPLETADO') {
+                // Por si el servidor la devuelve explícitamente como completada
                 _showSuccessDialog(context);
               }
             }
@@ -280,7 +289,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         backgroundColor: const Color(0xFF1E293B),
         title: const Column(
@@ -309,10 +318,15 @@ class _SosScreenState extends ConsumerState<SosScreen>
                 // Limpiar cualquier rastro de la emergencia anterior
                 ref.invalidate(emergencyNotifierProvider);
                 ref.invalidate(evidenceProvider);
-                Navigator.of(context).pop();
+                
+                // 1. Cerrar el diálogo usando su propio contexto
+                Navigator.of(dialogContext).pop();
+                
+                // 2. Navegar usando el contexto de la pantalla principal (que sigue vivo)
+                context.push('/payment');
               },
               child: const Text(
-                'ENTENDIDO',
+                'IR AL PAGO',
                 style: TextStyle(
                   color: Color(0xFF3B82F6),
                   fontWeight: FontWeight.bold,

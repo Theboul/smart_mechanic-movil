@@ -37,6 +37,10 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
@@ -46,6 +50,8 @@ flutter {
 }
 
 dependencies {
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.9.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     
     // Firebase BoM

@@ -1,13 +1,25 @@
 import 'dart:developer';
+import 'dart:io' as dart_io;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'core/router/app_router.dart';
+
 import 'core/theme/app_theme.dart';
 import 'core/services/notification_service.dart';
 
 final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+class MyHttpOverrides extends dart_io.HttpOverrides {
+  @override
+  dart_io.HttpClient createHttpClient(dart_io.SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback =
+          (dart_io.X509Certificate cert, String host, int port) => true;
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,8 +31,17 @@ void main() async {
     FlutterError.presentError(details);
   };
 
+  // Ignorar errores de certificado SSL por el guion bajo en el dominio
+  dart_io.HttpOverrides.global = MyHttpOverrides();
+
   await Firebase.initializeApp();
   await dotenv.load(fileName: ".env");
+
+  // Stripe Initialization
+  Stripe.publishableKey =
+      dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "pk_test_placeholder";
+  await Stripe.instance.applySettings();
+
 
   final container = ProviderContainer();
   await container

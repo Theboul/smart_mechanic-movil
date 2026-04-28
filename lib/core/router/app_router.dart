@@ -14,6 +14,8 @@ import '../../features/emergencies/presentation/screens/sos_screen.dart';
 import '../../features/emergencies/presentation/screens/history_screen.dart';
 import '../../features/ai_assistant/presentation/screens/evidence_screen.dart';
 import '../../features/ai_assistant/presentation/screens/ai_chat_screen.dart';
+import '../../features/finance/presentation/screens/stripe_payment_screen.dart';
+
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final notifier = RouterNotifier(ref);
@@ -89,6 +91,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/ai-analysis',
         builder: (context, state) => const AIChatScreen(),
+      ),
+      GoRoute(
+        path: '/payment',
+        builder: (context, state) => const StripePaymentScreen(),
       ),
       GoRoute(path: '/', builder: (context, state) => const SosScreen()),
     ],
