@@ -49,3 +49,4 @@ app.*.map.json
 
 # Local environment variables
 .env
+*.env
