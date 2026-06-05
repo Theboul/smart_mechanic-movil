@@ -1,5 +1,6 @@
 import 'dart:developer';
 import 'dart:io' as dart_io;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -21,6 +22,7 @@ class MyHttpOverrides extends dart_io.HttpOverrides {
   }
 }
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -31,22 +33,46 @@ void main() async {
     FlutterError.presentError(details);
   };
 
-  // Ignorar errores de certificado SSL por el guion bajo en el dominio
-  dart_io.HttpOverrides.global = MyHttpOverrides();
+  // Ignorar errores de certificado SSL por el guion bajo en el dominio (solo móvil)
+  if (!kIsWeb) {
+    dart_io.HttpOverrides.global = MyHttpOverrides();
+  }
 
-  await Firebase.initializeApp();
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      log('❌ Firebase initialize error: $e');
+    }
+  } else {
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      log('⚠️ Firebase not initialized on Web: $e');
+    }
+  }
+
   await dotenv.load(fileName: ".env");
 
-  // Stripe Initialization
-  Stripe.publishableKey =
-      dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "pk_test_placeholder";
-  await Stripe.instance.applySettings();
-
+  // Stripe Initialization (solo móvil)
+  if (!kIsWeb) {
+    Stripe.publishableKey =
+        dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "pk_test_placeholder";
+    try {
+      await Stripe.instance.applySettings();
+    } catch (e) {
+      log('❌ Stripe initialize error: $e');
+    }
+  }
 
   final container = ProviderContainer();
-  await container
-      .read(notificationServiceProvider)
-      .initialize(scaffoldMessengerKey);
+  try {
+    await container
+        .read(notificationServiceProvider)
+        .initialize(scaffoldMessengerKey);
+  } catch (e) {
+    log('⚠️ Notification service initialization skipped or failed: $e');
+  }
 
   runApp(UncontrolledProviderScope(container: container, child: const MyApp()));
 }

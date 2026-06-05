@@ -32,6 +32,7 @@ class SocketService {
     debugPrint('Conectando a WebSocket: $baseUrl');
     
     _channel = WebSocketChannel.connect(Uri.parse(baseUrl));
+    _messageController.add({'type': 'WS_CONNECTED'});
 
     _channel!.stream.listen(
       (data) {
@@ -56,5 +57,12 @@ class SocketService {
 
   void disconnect() {
     _channel?.sink.close();
+  }
+
+  WebSocketChannel connectToIncident(String incidentId, String token) {
+    final wsBase = dotenv.env['WS_URL'] ?? 'ws://127.0.0.1:8000';
+    final url = '$wsBase/api/v1/emergencies/ws/incidents/$incidentId?token=$token';
+    debugPrint('🔌 Connecting to Incident WS: $url');
+    return WebSocketChannel.connect(Uri.parse(url));
   }
 }

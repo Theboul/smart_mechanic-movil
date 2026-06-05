@@ -19,7 +19,8 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.4
+  sdk: ">=3.10.3 <4.0.0"
+  flutter: ">=3.38.4"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -52,12 +53,17 @@ dependencies:
   record: ^6.2.0
   vibration: ^3.1.8
   permission_handler: ^12.0.1
+  google_maps_flutter: ^2.11.0
   web_socket_channel: ^3.0.1
   intl: ^0.20.2
   firebase_core: ^3.1.1
   firebase_messaging: ^15.0.1
   flutter_local_notifications: ^17.1.2
   flutter_stripe: ^12.6.0
+  speech_to_text: ^7.4.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.2.0
+
 
 dev_dependencies:
   flutter_test:

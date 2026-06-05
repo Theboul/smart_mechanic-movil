@@ -1,18 +1,17 @@
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/evidence_repository.dart';
-//import 'chat_provider.dart';
 
 class EvidenceState {
   final XFile? photo;
-  final String? audioPath;
+  final String? description;
   final bool isUploading;
   final String? error;
   final bool isSuccess;
 
   EvidenceState({
     this.photo,
-    this.audioPath,
+    this.description,
     this.isUploading = false,
     this.error,
     this.isSuccess = false,
@@ -20,14 +19,14 @@ class EvidenceState {
 
   EvidenceState copyWith({
     XFile? photo,
-    String? audioPath,
+    String? description,
     bool? isUploading,
     String? error,
     bool? isSuccess,
   }) {
     return EvidenceState(
       photo: photo ?? this.photo,
-      audioPath: audioPath ?? this.audioPath,
+      description: description ?? this.description,
       isUploading: isUploading ?? this.isUploading,
       error: error ?? this.error,
       isSuccess: isSuccess ?? this.isSuccess,
@@ -52,21 +51,21 @@ class EvidenceNotifier extends Notifier<EvidenceState> {
   void clearPhoto() {
     state = EvidenceState(
       photo: null,
-      audioPath: state.audioPath,
+      description: state.description,
       isUploading: state.isUploading,
       error: state.error,
       isSuccess: state.isSuccess,
     );
   }
 
-  void setAudio(String path) {
-    state = state.copyWith(audioPath: path);
+  void setDescription(String text) {
+    state = state.copyWith(description: text);
   }
 
-  void clearAudio() {
+  void clearDescription() {
     state = EvidenceState(
       photo: state.photo,
-      audioPath: null,
+      description: null,
       isUploading: state.isUploading,
       error: state.error,
       isSuccess: state.isSuccess,
@@ -74,8 +73,6 @@ class EvidenceNotifier extends Notifier<EvidenceState> {
   }
 
   Future<void> uploadAll(String incidentId) async {
-    if (state.photo == null && state.audioPath == null) return;
-
     state = state.copyWith(isUploading: true, error: null, isSuccess: false);
 
     try {
@@ -90,21 +87,13 @@ class EvidenceNotifier extends Notifier<EvidenceState> {
         );
       }
 
-      // Subir audio si existe
-      if (state.audioPath != null) {
-        await repository.uploadEvidence(
-          incidentId: incidentId,
-          filePath: state.audioPath!,
-          type: 'audio',
-        );
-      }
-      
-      // Gatillar el análisis de IA y asignación de taller una sola vez
-      await repository.processIncident(incidentId);
+      // Gatillar el análisis de IA y asignación de taller pasándole la descripción
+      await repository.processIncident(incidentId, description: state.description);
 
       state = state.copyWith(isSuccess: true);
     } catch (e) {
       state = state.copyWith(error: e.toString());
+      rethrow;
     } finally {
       state = state.copyWith(isUploading: false);
     }

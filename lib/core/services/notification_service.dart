@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'dart:developer';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -16,8 +17,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 class NotificationService {
   final Ref _ref;
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  FirebaseMessaging get _fcm => FirebaseMessaging.instance;
+  FlutterLocalNotificationsPlugin get _localNotifications => FlutterLocalNotificationsPlugin();
   GlobalKey<ScaffoldMessengerState>? _messengerKey;
 
   // Definición del canal para Android
@@ -34,6 +35,11 @@ class NotificationService {
 
   Future<void> initialize(GlobalKey<ScaffoldMessengerState> key) async {
     _messengerKey = key;
+    
+    if (kIsWeb) {
+      log('🔔 NOTIFICACIONES: Ignorando inicialización de notificaciones en Web.');
+      return;
+    }
     
     // 1. Configurar Local Notifications (Para Android/iOS)
     const AndroidInitializationSettings initializationSettingsAndroid =

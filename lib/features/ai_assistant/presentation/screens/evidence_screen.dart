@@ -5,9 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../providers/evidence_provider.dart';
 import '../../../../core/theme/app_theme.dart';
 
@@ -20,36 +19,93 @@ class EvidenceScreen extends ConsumerStatefulWidget {
 }
 
 class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
-  final _audioRecorder = AudioRecorder();
-  bool _isRecording = false;
-  bool _isPaused = false;
-  Timer? _timer;
-  int _recordDuration = 0;
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechAvailable = false;
+  bool _isListening = false;
+  final TextEditingController _descriptionController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    // Ya no disparamos la cámara automáticamente para evitar confusión al entrar desde notificaciones
+    _initSpeech();
+    
+    // Sincronizar controlador con el provider si ya existiera descripción
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final initialDesc = ref.read(evidenceProvider).description;
+      if (initialDesc != null) {
+        _descriptionController.text = initialDesc;
+      }
+    });
+
+    _descriptionController.addListener(() {
+      ref.read(evidenceProvider.notifier).setDescription(_descriptionController.text);
+    });
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _audioRecorder.dispose();
+    _descriptionController.dispose();
+    _speech.stop();
     super.dispose();
   }
 
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      setState(() => _recordDuration++);
-    });
+  Future<void> _initSpeech() async {
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          debugPrint('STT status: $status');
+          if (status == 'done' || status == 'notListening') {
+            if (mounted) setState(() => _isListening = false);
+          }
+        },
+        onError: (errorNotification) {
+          debugPrint('STT error: $errorNotification');
+          if (mounted) setState(() => _isListening = false);
+        },
+      );
+      if (mounted) {
+        setState(() {
+          _speechAvailable = available;
+        });
+      }
+    } catch (e) {
+      debugPrint('Speech to text not supported or error: $e');
+    }
   }
 
-  String _formatDuration(int seconds) {
-    final minutes = (seconds / 60).floor().toString().padLeft(2, '0');
-    final secs = (seconds % 60).floor().toString().padLeft(2, '0');
-    return '$minutes:$secs';
+  void _toggleListening() async {
+    if (_isListening) {
+      await _speech.stop();
+      setState(() => _isListening = false);
+    } else {
+      if (_speechAvailable) {
+        setState(() => _isListening = true);
+        await _speech.listen(
+          onResult: (result) {
+            if (mounted) {
+              setState(() {
+                _descriptionController.text = result.recognizedWords;
+                // Colocar cursor al final
+                _descriptionController.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _descriptionController.text.length),
+                );
+              });
+            }
+          },
+          listenOptions: stt.SpeechListenOptions(
+            localeId: 'es_ES',
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reconocimiento de voz no disponible en este dispositivo. Escribe manualmente.'),
+            backgroundColor: Colors.orangeAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -58,62 +114,6 @@ class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
     if (image != null) {
       ref.read(evidenceProvider.notifier).setPhoto(image);
     }
-  }
-
-  Future<void> _startRecording() async {
-    try {
-      if (await _audioRecorder.hasPermission()) {
-        String? path;
-        if (!kIsWeb) {
-          final dir = await getTemporaryDirectory();
-          path = '${dir.path}/sos_audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-        }
-        
-        await _audioRecorder.start(const RecordConfig(), path: path ?? '');
-        setState(() {
-          _isRecording = true;
-          _isPaused = false;
-          _recordDuration = 0;
-        });
-        _startTimer();
-      }
-    } catch (e) {
-      debugPrint('Error starting recording: $e');
-    }
-  }
-
-  Future<void> _pauseRecording() async {
-    await _audioRecorder.pause();
-    _timer?.cancel();
-    setState(() => _isPaused = true);
-  }
-
-  Future<void> _resumeRecording() async {
-    await _audioRecorder.resume();
-    _startTimer();
-    setState(() => _isPaused = false);
-  }
-
-  Future<void> _stopRecording() async {
-    _timer?.cancel();
-    final path = await _audioRecorder.stop();
-    setState(() {
-      _isRecording = false;
-      _isPaused = false;
-    });
-    if (path != null) {
-      ref.read(evidenceProvider.notifier).setAudio(path);
-    }
-  }
-
-  Future<void> _cancelRecording() async {
-    _timer?.cancel();
-    await _audioRecorder.stop();
-    setState(() {
-      _isRecording = false;
-      _isPaused = false;
-      _recordDuration = 0;
-    });
   }
 
   @override
@@ -143,12 +143,17 @@ class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
             ],
           ),
         ),
-        child: Column(
-          children: [
-            Expanded(child: _buildImageSection(state)),
-            _buildAudioControlPanel(state),
-            _buildBottomAction(state),
-          ],
+        child: SingleChildScrollView(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height - AppBar().preferredSize.height - MediaQuery.of(context).padding.top,
+            child: Column(
+              children: [
+                Expanded(child: _buildImageSection(state)),
+                _buildVoiceTranscriptionPanel(state),
+                _buildBottomAction(state),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -243,163 +248,150 @@ class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
     );
   }
 
-  Widget _buildAudioControlPanel(EvidenceState state) {
+  Widget _buildVoiceTranscriptionPanel(EvidenceState state) {
     return Container(
-      padding: const EdgeInsets.all(24),
-      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(30),
         border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                _isRecording ? 'GRABANDO' : (state.audioPath != null ? 'AUDIO LISTO' : 'EXPLICACIÓN'),
-                style: TextStyle(
-                  color: _isRecording ? Colors.redAccent : Colors.white70,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.5,
-                  fontSize: 12,
+              const Expanded(
+                child: Text(
+                  'DESCRIPCIÓN DE LA EMERGENCIA',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-              if (_isRecording)
-                Text(
-                  _formatDuration(_recordDuration),
-                  style: const TextStyle(color: AppTheme.electricBlue, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+              if (_isListening)
+                const Row(
+                  children: [
+                    Icon(Icons.fiber_manual_record, color: Colors.redAccent, size: 12),
+                    SizedBox(width: 4),
+                    Text(
+                      'ESCUCHANDO...',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
             ],
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              if (_isRecording) ...[
-                // Botón Cancelar
-                _buildRoundControl(
-                  icon: Icons.close,
-                  color: Colors.white24,
-                  onTap: _cancelRecording,
-                ),
-                // Botón Pausar/Reanudar
-                _buildRoundControl(
-                  icon: _isPaused ? Icons.play_arrow : Icons.pause,
-                  color: AppTheme.electricBlue,
-                  size: 70,
-                  onTap: _isPaused ? _resumeRecording : _pauseRecording,
-                ),
-                // Botón Detener/Guardar
-                _buildRoundControl(
-                  icon: Icons.stop,
-                  color: Colors.redAccent,
-                  onTap: _stopRecording,
-                ),
-              ] else if (state.audioPath != null) ...[
-                Expanded(
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        color: Colors.greenAccent,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'AUDIO LISTO',
-                              style: TextStyle(
-                                color: Colors.greenAccent,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            Text(
-                              'Audio grabado correctamente',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.7),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => ref.read(evidenceProvider.notifier).clearAudio(),
-                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-                        tooltip: 'Eliminar audio',
-                      ),
-                    ],
-                  ),
-                ),
-              ] else ...[
-                // Botón Iniciar Grabación
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descriptionController,
+            maxLines: 3,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'Describe lo que ocurre (ej. "Mi auto echa humo y no enciende...")',
+              hintStyle: const TextStyle(color: Colors.white24, fontSize: 13),
+              filled: true,
+              fillColor: Colors.black.withValues(alpha: 0.2),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: AppTheme.electricBlue.withValues(alpha: 0.2)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: AppTheme.electricBlue),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
                 GestureDetector(
-                  onTap: _startRecording,
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
+                  onTap: _toggleListening,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppTheme.electricBlue.withValues(alpha: 0.1),
+                      color: _isListening
+                          ? Colors.redAccent.withValues(alpha: 0.2)
+                          : AppTheme.electricBlue.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
-                      border: Border.all(color: AppTheme.electricBlue.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: _isListening
+                            ? Colors.redAccent
+                            : AppTheme.electricBlue.withValues(alpha: 0.3),
+                        width: 2,
+                      ),
                       boxShadow: [
-                        BoxShadow(color: AppTheme.electricBlue.withValues(alpha: 0.2), blurRadius: 15)
-                      ]
+                        BoxShadow(
+                          color: _isListening
+                              ? Colors.redAccent.withValues(alpha: 0.3)
+                              : AppTheme.electricBlue.withValues(alpha: 0.2),
+                          blurRadius: 15,
+                        )
+                      ],
                     ),
-                    child: const Icon(Icons.mic, color: AppTheme.electricBlue, size: 40),
+                    child: Icon(
+                      _isListening ? Icons.mic : Icons.mic_none,
+                      color: _isListening ? Colors.redAccent : AppTheme.electricBlue,
+                      size: 32,
+                    ),
                   ),
                 ),
+                const SizedBox(width: 20),
+                if (_descriptionController.text.isNotEmpty)
+                  IconButton(
+                    onPressed: () {
+                      _descriptionController.clear();
+                      ref.read(evidenceProvider.notifier).clearDescription();
+                    },
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 28),
+                    tooltip: 'Limpiar descripción',
+                  ),
               ],
-            ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRoundControl({required IconData icon, required Color color, double size = 55, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: Colors.white, size: size * 0.5),
-      ),
-    );
-  }
-
   Widget _buildBottomAction(EvidenceState state) {
-    final canUpload = (state.photo != null || state.audioPath != null) && !state.isUploading;
+    final isUploading = state.isUploading;
+    final hasEvidence = state.photo != null || (state.description != null && state.description!.isNotEmpty);
+    final buttonText = hasEvidence ? 'INICIAR ANÁLISIS INTELIGENTE' : 'OMITIR Y CONTINUAR';
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: ElevatedButton(
-        onPressed: canUpload 
-            ? () async {
+        onPressed: isUploading 
+            ? null 
+            : () async {
                 await ref.read(evidenceProvider.notifier).uploadAll(widget.incidentId);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ Evidencias enviadas. Iniciando análisis...'),
+                    SnackBar(
+                      content: Text(hasEvidence 
+                          ? '✅ Evidencias enviadas. Iniciando análisis...' 
+                          : '🚀 Creando reporte sin evidencias... Estamos buscando un taller disponible.'),
                       backgroundColor: Colors.green,
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
-                  // Usamos .go para reemplazar la pantalla actual y que no se pueda volver atrás
                   context.go('/ai-analysis');
                 }
-              }
-            : null,
+              },
         style: ElevatedButton.styleFrom(
           backgroundColor: AppTheme.electricBlue,
           foregroundColor: Colors.white,
@@ -409,15 +401,15 @@ class _EvidenceScreenState extends ConsumerState<EvidenceScreen> {
           elevation: 8,
           shadowColor: AppTheme.electricBlue.withValues(alpha: 0.5),
         ),
-        child: state.isUploading 
+        child: isUploading 
             ? const SizedBox(
                 height: 25,
                 width: 25,
                 child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
               )
-            : const Text(
-                'INICIAR ANÁLISIS INTELIGENTE',
-                style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
+            : Text(
+                buttonText,
+                style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
               ),
       ),
     );

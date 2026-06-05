@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:smart_mechanic_app/core/local_storage/secure_storage_provider.dart';
 import '../../data/emergency_repository.dart';
 import '../../domain/incident.dart';
 import '../../../identity/presentation/providers/auth_provider.dart';
@@ -22,7 +23,15 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
 
   Future<IncidentResponse?> _checkActiveIncident() async {
     try {
-      return await ref.read(emergencyRepositoryProvider).getActiveIncident();
+      final active = await ref.read(emergencyRepositoryProvider).getActiveIncident();
+      if (active == null) return null;
+
+      final storage = ref.read(secureStorageProvider);
+      final isCompleted = await storage.read(key: 'locally_completed_${active.id}');
+      if (isCompleted == 'true') {
+        return null;
+      }
+      return active;
     } catch (_) {
       return null;
     }
@@ -47,10 +56,23 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
         return;
       }
 
+      final storage = ref.read(secureStorageProvider);
+      final isCompleted = await storage.read(key: 'locally_completed_${updated.id}');
+      if (isCompleted == 'true') {
+        state = const AsyncValue.data(null);
+        return;
+      }
+
       state = AsyncValue.data(updated);
     } catch (e) {
       // Ignoramos errores de red en el polling silencioso
     }
+  }
+
+  Future<void> completeIncidentLocally(String incidentId) async {
+    final storage = ref.read(secureStorageProvider);
+    await storage.write(key: 'locally_completed_$incidentId', value: 'true');
+    state = const AsyncValue.data(null);
   }
 
   Future<void> sendSOS(String vehicleId, {String? description}) async {
@@ -104,6 +126,61 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
       state = const AsyncValue.data(null);
     } catch (e, stack) {
       state = AsyncValue.error(e, stack);
+    }
+  }
+
+  Future<void> updateStatus(String incidentId, String nuevoEstado) async {
+    state = const AsyncValue.loading();
+    try {
+      final updated = await ref.read(emergencyRepositoryProvider).updateIncidentStatus(incidentId, nuevoEstado);
+      state = AsyncValue.data(updated);
+    } catch (e, stack) {
+      state = AsyncValue.error(e, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> verifyTechnician(String incidentId, String code) async {
+    state = const AsyncValue.loading();
+    try {
+      final updated = await ref.read(emergencyRepositoryProvider).verifyTechnician(incidentId, code);
+      state = AsyncValue.data(updated);
+    } catch (e, stack) {
+      state = AsyncValue.error(e, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> validateVerificationCode(String incidentId, String code) async {
+    state = const AsyncValue.loading();
+    try {
+      final updated = await ref.read(emergencyRepositoryProvider).validateVerificationCode(incidentId, code);
+      state = AsyncValue.data(updated);
+    } catch (e, stack) {
+      state = AsyncValue.error(e, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> rejectTechnician(String incidentId) async {
+    state = const AsyncValue.loading();
+    try {
+      final updated = await ref.read(emergencyRepositoryProvider).rejectTechnician(incidentId);
+      state = AsyncValue.data(updated);
+    } catch (e, stack) {
+      state = AsyncValue.error(e, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> rejectTechnicianVerification(String incidentId) async {
+    state = const AsyncValue.loading();
+    try {
+      final updated = await ref.read(emergencyRepositoryProvider).rejectTechnicianVerification(incidentId);
+      state = AsyncValue.data(updated);
+    } catch (e, stack) {
+      state = AsyncValue.error(e, stack);
+      rethrow;
     }
   }
 }

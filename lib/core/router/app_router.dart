@@ -12,6 +12,9 @@ import '../../features/identity/presentation/screens/register_screen.dart';
 import '../../features/garage/presentation/screens/register_vehicle_screen.dart';
 import '../../features/emergencies/presentation/screens/sos_screen.dart';
 import '../../features/emergencies/presentation/screens/history_screen.dart';
+import '../../features/emergencies/presentation/screens/technician_dashboard_screen.dart';
+import '../../features/emergencies/presentation/screens/technician_incident_detail_screen.dart';
+import '../../features/emergencies/presentation/screens/technician_active_trip_screen.dart';
 import '../../features/ai_assistant/presentation/screens/evidence_screen.dart';
 import '../../features/ai_assistant/presentation/screens/ai_chat_screen.dart';
 import '../../features/finance/presentation/screens/stripe_payment_screen.dart';
@@ -46,7 +49,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // 2. Si está logueado pero está en pantallas de auth, mandarlo al Home
       if (isLoggedIn && isLoggingIn) return '/';
 
-      // 3. Lógica de vehículos para usuarios logueados
+      // Si el usuario es un técnico, omitimos la comprobación de vehículos
+      final isTechnician = authState.user?.rol == 'tecnico';
+      if (isTechnician) return null;
+
+      // 3. Lógica de vehículos para usuarios logueados (clientes)
       return vehicleState.when(
         data: (vehicles) {
           // Si no tiene vehículos y no está en login/register/register-vehicle, obligarlo a registrar
@@ -94,9 +101,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/payment',
-        builder: (context, state) => const StripePaymentScreen(),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return StripePaymentScreen(incidentId: extra?['incidentId'] ?? '');
+        },
       ),
-      GoRoute(path: '/', builder: (context, state) => const SosScreen()),
+      GoRoute(
+        path: '/technician/incident-detail',
+        builder: (context, state) => const TechnicianIncidentDetailScreen(),
+      ),
+      GoRoute(
+        path: '/technician/active-trip',
+        builder: (context, state) => const TechnicianActiveTripScreen(),
+      ),
+      GoRoute(
+        path: '/',
+        builder: (context, state) {
+          final user = ref.read(authProvider).user;
+          if (user != null && user.rol == 'tecnico') {
+            return const TechnicianDashboardScreen();
+          }
+          return const SosScreen();
+        },
+      ),
     ],
   );
 });

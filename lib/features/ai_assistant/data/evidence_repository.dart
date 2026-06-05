@@ -26,7 +26,10 @@ class EvidenceRepository {
     return response.data;
   }
 
-  Future<void> processIncident(String incidentId) async {
-    await _dio.post('/api/v1/emergencies/$incidentId/process');
+  Future<void> processIncident(String incidentId, {String? description}) async {
+    await _dio.post(
+      '/api/v1/emergencies/$incidentId/process',
+      data: description != null ? {'descripcion': description} : null,
+    );
   }
 }

@@ -45,4 +45,74 @@ class EmergencyRepository {
     final response = await _dio.post('/api/v1/emergencies/$id/cancel');
     return IncidentResponse.fromJson(response.data);
   }
+
+  Future<IncidentResponse> updateIncidentStatus(String id, String nuevoEstado) async {
+    final response = await _dio.patch(
+      '/api/v1/emergencies/$id/status',
+      data: {'nuevo_estado': nuevoEstado},
+    );
+    return IncidentResponse.fromJson(response.data);
+  }
+
+  Future<IncidentResponse> registerBilling({
+    required String id,
+    required double total,
+    required double labor,
+    required double parts,
+    required String observations,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/finance/emergencies/$id/billing',
+      data: {
+        'monto_total': total,
+        'mano_de_obra': labor,
+        'repuestos': parts,
+        'observaciones': observations,
+      },
+    );
+    return IncidentResponse.fromJson(response.data);
+  }
+
+  Future<IncidentResponse> verifyTechnician(String id, String verificationCode) async {
+    final response = await _dio.post(
+      '/api/v1/emergencies/$id/verify-technician',
+      data: {'verification_code': verificationCode},
+    );
+    return IncidentResponse.fromJson(response.data);
+  }
+
+  Future<IncidentResponse> validateVerificationCode(String id, String verificationCode) async {
+    return verifyTechnician(id, verificationCode);
+  }
+
+  Future<IncidentResponse> rejectTechnician(String id) async {
+    final response = await _dio.post(
+      '/api/v1/emergencies/$id/reject-technician',
+    );
+    return IncidentResponse.fromJson(response.data);
+  }
+
+  Future<IncidentResponse> rejectTechnicianVerification(String id) async {
+    return rejectTechnician(id);
+  }
+
+  Future<void> postTrackingLocation(String id, double lat, double lng, double? speed) async {
+    await _dio.post(
+      '/api/v1/emergencies/incidents/$id/tracking',
+      data: {
+        'latitud': lat,
+        'longitud': lng,
+        'velocidad': speed,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>?> getLatestTracking(String id) async {
+    try {
+      final response = await _dio.get('/api/v1/emergencies/incidents/$id/tracking/latest');
+      return response.data as Map<String, dynamic>?;
+    } catch (e) {
+      return null;
+    }
+  }
 }
