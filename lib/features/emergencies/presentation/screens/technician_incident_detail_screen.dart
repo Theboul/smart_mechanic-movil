@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:smart_mechanic_app/core/utils/map_loader.dart' as map_loader;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -5,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/emergency_provider.dart';
 import '../../data/emergency_repository.dart';
+import '../../domain/incident.dart';
 
 class TechnicianIncidentDetailScreen extends ConsumerStatefulWidget {
   const TechnicianIncidentDetailScreen({super.key});
@@ -14,6 +17,7 @@ class TechnicianIncidentDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncidentDetailScreen> {
+  IncidentResponse? _cachedIncident;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +33,12 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
         ),
       ),
       body: emergencyState.when(
-        data: (incident) {
+        data: (incidentParam) {
+          if (incidentParam != null) {
+            _cachedIncident = incidentParam;
+          }
+
+          final incident = _cachedIncident;
           if (incident == null) {
             return const Center(child: Text('No hay incidente activo', style: TextStyle(color: Colors.white)));
           }
@@ -48,22 +57,35 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
                 left: 0,
                 right: 0,
                 height: MediaQuery.of(context).size.height * 0.4,
-                child: GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: incidentLatLng,
-                    zoom: 15,
-                  ),
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  markers: {
-                    Marker(
-                      markerId: const MarkerId('incident_loc'),
-                      position: incidentLatLng,
-                      infoWindow: const InfoWindow(title: 'Vehículo Avariado'),
-                      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-                    ),
-                  },
-                ),
+                child: (kIsWeb && !map_loader.isGoogleMapsInitialized())
+                    ? Container(
+                        color: const Color(0xFF1E293B),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          map_loader.hasGoogleMapsApiKey()
+                              ? 'Cargando mapa...'
+                              : 'No se pudo cargar el mapa. Configura GOOGLE_MAPS_API_KEY.',
+                          style: const TextStyle(color: Colors.white70),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: incidentLatLng,
+                          zoom: 15,
+                        ),
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: false,
+                        markers: {
+                          Marker(
+                            markerId: const MarkerId('incident_loc'),
+                            position: incidentLatLng,
+                            infoWindow: const InfoWindow(title: 'Vehículo Avariado'),
+                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                          ),
+                        },
+                      ),
               ),
 
               // Botón flotante para abrir en app de mapas externa
@@ -188,7 +210,7 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
                       // Botón Principal Dinámico
                       if (status == 'EN_ATENCION' || status == 'EN_PROGRESO')
                         ElevatedButton(
-                          onPressed: () => _showFinishConfirmation(context, incident.id),
+                          onPressed: () => _showFinishConfirmation(context, incident),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF10B981), // Esmeralda premium
                             foregroundColor: Colors.black,
@@ -300,7 +322,7 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
     }
   }
 
-  void _showFinishConfirmation(BuildContext outerContext, String incidentId) {
+  void _showFinishConfirmation(BuildContext outerContext, IncidentResponse incident) {
     showModalBottomSheet(
       context: outerContext,
       isScrollControlled: true,
@@ -308,7 +330,7 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
       builder: (sheetContext) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
         child: _BillingFormBottomSheet(
-          incidentId: incidentId,
+          incidentId: incident.id,
           onSubmit: ({
             required double labor,
             required double parts,
@@ -321,16 +343,13 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
             
             try {
               await ref.read(emergencyRepositoryProvider).registerBilling(
-                id: incidentId,
+                id: incident.id,
                 total: total,
                 labor: labor,
                 parts: parts,
                 observations: observationsWithPrefix,
               );
               
-              // Forzar actualización del notifier para refrescar el estado del incidente
-              await ref.read(emergencyNotifierProvider.notifier).refreshStatus();
-
               if (!sheetContext.mounted) return;
               Navigator.pop(sheetContext); // Cerrar bottom sheet
               
@@ -340,7 +359,54 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
                   backgroundColor: Colors.green,
                 ),
               );
-              outerContext.go('/');
+
+              // Preguntar si requiere atención posterior
+              if (!outerContext.mounted) return;
+              final requireFollowUp = await showDialog<bool>(
+                context: outerContext,
+                barrierDismissible: false,
+                builder: (dialogContext) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E293B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Text('¿Atención Posterior?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  content: const Text(
+                    '¿El vehículo requiere una revisión, mantenimiento o seguimiento posterior en taller?',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('NO, VOLVER A INICIO', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: const Text('SÍ, AGENDAR CITA', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+
+              if (requireFollowUp == true) {
+                if (!outerContext.mounted) return;
+                outerContext.push(
+                  '/technician/schedule-followup',
+                  extra: {
+                    'incidentId': incident.id,
+                    'vehicleId': incident.vehicleId,
+                    'sucursalId': incident.sucursalId ?? '',
+                    'tecnicoId': incident.technicianId,
+                  },
+                );
+              } else {
+                if (!outerContext.mounted) return;
+                await ref.read(emergencyNotifierProvider.notifier).refreshStatus();
+                if (!outerContext.mounted) return;
+                outerContext.go('/');
+              }
             } catch (e) {
               if (!sheetContext.mounted) return;
               ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -623,6 +689,7 @@ class _BillingFormBottomSheetState extends State<_BillingFormBottomSheet> {
                             foregroundColor: Colors.black,
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            minimumSize: const Size(120, 50),
                           ),
                           child: _isLoading 
                             ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))

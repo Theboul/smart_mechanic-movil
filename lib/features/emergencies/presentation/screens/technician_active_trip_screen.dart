@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:smart_mechanic_app/core/utils/map_loader.dart' as map_loader;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -20,15 +22,17 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
   GoogleMapController? _mapController;
   StreamSubscription<Position>? _positionStreamSub;
   LatLng? _techLocation;
+  late final TrackingService _trackingService;
 
   @override
   void initState() {
     super.initState();
+    _trackingService = ref.read(trackingServiceProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final incident = ref.read(emergencyNotifierProvider).value;
       if (incident != null) {
         // 1. Iniciar el servicio de envío de tracking GPS al backend
-        ref.read(trackingServiceProvider).startTracking(incident.id);
+        _trackingService.startTracking(incident.id);
         
         // 2. Suscribirse a la ubicación local del dispositivo para actualizar el mapa en vivo
         _startLocalPositionStream();
@@ -40,7 +44,7 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
   void dispose() {
     _positionStreamSub?.cancel();
     // Detener tracking al salir de la pantalla
-    ref.read(trackingServiceProvider).stopTracking();
+    _trackingService.stopTracking();
     super.dispose();
   }
 
@@ -90,8 +94,10 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
 
     // Escuchar cambios de estado para salir de la pantalla si se verifica o cancela
     ref.listen<AsyncValue<IncidentResponse?>>(emergencyNotifierProvider, (previous, next) {
+      if (!context.mounted) return;
       next.whenOrNull(
         data: (incident) {
+          if (!context.mounted) return;
           if (incident == null) {
             context.go('/');
           } else {
@@ -103,6 +109,7 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
                   backgroundColor: Colors.green,
                 ),
               );
+              if (!context.mounted) return;
               context.go('/');
             }
           }
@@ -154,19 +161,32 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
           return Stack(
             children: [
               // 1. Mapa de Google
-              GoogleMap(
-                initialCameraPosition: CameraPosition(
-                  target: clientLatLng,
-                  zoom: 14,
-                ),
-                onMapCreated: (controller) {
-                  _mapController = controller;
-                  _fitMapBounds();
-                },
-                markers: markers,
-                zoomControlsEnabled: false,
-                myLocationButtonEnabled: false,
-              ),
+              (kIsWeb && !map_loader.isGoogleMapsInitialized())
+                  ? Container(
+                      color: const Color(0xFF1E293B),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        map_loader.hasGoogleMapsApiKey()
+                            ? 'Cargando mapa...'
+                            : 'No se pudo cargar el mapa. Configura GOOGLE_MAPS_API_KEY.',
+                        style: const TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: clientLatLng,
+                        zoom: 14,
+                      ),
+                      onMapCreated: (controller) {
+                        _mapController = controller;
+                        _fitMapBounds();
+                      },
+                      markers: markers,
+                      zoomControlsEnabled: false,
+                      myLocationButtonEnabled: false,
+                    ),
 
               // Botón Superior para volver al Dashboard
               Positioned(
@@ -328,7 +348,7 @@ class _TechnicianActiveTripScreenState extends ConsumerState<TechnicianActiveTri
       await ref.read(emergencyNotifierProvider.notifier).updateStatus(incidentId, 'TECNICO_EN_SITIO');
       
       // 2. Apagar el tracking GPS local
-      ref.read(trackingServiceProvider).stopTracking();
+      _trackingService.stopTracking();
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:smart_mechanic_app/core/utils/map_loader.dart' as map_loader;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -227,7 +229,7 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
 
   Future<void> _loadInitialTracking() async {
     final status = widget.incident.estado.toUpperCase();
-    if (['EN_CAMINO', 'EN_ATENCION', 'EN_PROGRESO'].contains(status)) {
+    if (['EN_CAMINO', 'TECNICO_EN_SITIO'].contains(status)) {
       try {
         final repo = ref.read(emergencyRepositoryProvider);
         final trackingData = await repo.getLatestTracking(widget.incident.id);
@@ -239,26 +241,49 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
           final timestamp = trackingData['timestamp'] as String?;
           final hasTracking = trackingData['has_tracking'] as bool? ?? (lat != null && lng != null);
           
+          final isRecent = timestamp != null && (() {
+            try {
+              final parsed = DateTime.parse(timestamp).toUtc();
+              final now = DateTime.now().toUtc();
+              return now.difference(parsed).inMinutes.abs() < 60;
+            } catch (_) {
+              return false;
+            }
+          })();
+
           setState(() {
-            _hasTracking = hasTracking;
-            if (lat != null && lng != null) {
-              _techLocation = LatLng((lat as num).toDouble(), (lng as num).toDouble());
+            if (status == 'EN_CAMINO') {
+              _hasTracking = hasTracking;
+              if (lat != null && lng != null) {
+                _techLocation = LatLng((lat as num).toDouble(), (lng as num).toDouble());
+              } else {
+                _techLocation = null;
+              }
+              _etaMinutes = eta;
+              if (polyline != null && hasTracking) {
+                _polylinePoints = _decodePolyline(polyline);
+              } else {
+                _polylinePoints = [];
+              }
+              if (_techLocation != null) {
+                final clientLatLng = LatLng(
+                  widget.incident.latitud ?? -17.7833,
+                  widget.incident.longitud ?? -63.1821,
+                );
+                _distanceKm = _calculateDistance(clientLatLng, _techLocation!);
+              } else {
+                _distanceKm = null;
+              }
             } else {
-              _techLocation = null;
-            }
-            _etaMinutes = eta;
-            if (polyline != null && hasTracking) {
-              _polylinePoints = _decodePolyline(polyline);
-            } else {
+              // TECNICO_EN_SITIO
+              _hasTracking = hasTracking && isRecent;
+              if (isRecent && lat != null && lng != null) {
+                _techLocation = LatLng((lat as num).toDouble(), (lng as num).toDouble());
+              } else {
+                _techLocation = null;
+              }
+              _etaMinutes = null;
               _polylinePoints = [];
-            }
-            if (_techLocation != null) {
-              final clientLatLng = LatLng(
-                widget.incident.latitud ?? -17.7833,
-                widget.incident.longitud ?? -63.1821,
-              );
-              _distanceKm = _calculateDistance(clientLatLng, _techLocation!);
-            } else {
               _distanceKm = null;
             }
             if (timestamp != null) {
@@ -276,9 +301,29 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _animateMapToTech();
           });
+        } else if (mounted) {
+          setState(() {
+            _techLocation = null;
+            _etaMinutes = null;
+            _polylinePoints = [];
+            _distanceKm = null;
+            _lastUpdatedTime = null;
+            _hasTracking = false;
+          });
         }
       } catch (e) {
         debugPrint('Error loading initial tracking: $e');
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _techLocation = null;
+          _etaMinutes = null;
+          _polylinePoints = [];
+          _distanceKm = null;
+          _lastUpdatedTime = null;
+          _hasTracking = false;
+        });
       }
     }
   }
@@ -312,7 +357,7 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
                 final timestamp = tracking['timestamp'] as String?;
                 final hasTracking = tracking['has_tracking'] as bool? ?? (lat != null && lng != null);
                 
-                if (mounted) {
+                if (mounted && widget.incident.estado.toUpperCase() == 'EN_CAMINO') {
                   setState(() {
                     _hasTracking = hasTracking;
                     if (lat != null && lng != null) {
@@ -392,6 +437,12 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
       widget.incident.latitud ?? -17.7833,
       widget.incident.longitud ?? -63.1821,
     );
+    
+    final status = widget.incident.estado.toUpperCase();
+    if (status != 'EN_CAMINO') {
+      _mapController!.animateCamera(CameraUpdate.newLatLngZoom(clientLatLng, 16.0));
+      return;
+    }
     
     if (!_hasTracking || _techLocation == null) {
       _mapController!.animateCamera(CameraUpdate.newLatLngZoom(clientLatLng, 15));
@@ -508,30 +559,43 @@ class _ActiveEmergencyStatusState extends ConsumerState<ActiveEmergencyStatus> {
       body: Stack(
         children: [
           // 1. Google Map as Background
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: clientLatLng,
-              zoom: 14,
-            ),
-            onMapCreated: (controller) {
-              _mapController = controller;
-              _animateMapToTech();
-            },
-            markers: markers,
-            polylines: {
-              if (_hasTracking && _polylinePoints.isNotEmpty)
-                Polyline(
-                  polylineId: const PolylineId('route'),
-                  points: _polylinePoints,
-                  color: const Color(0xFF3B82F6),
-                  width: 5,
-                  startCap: Cap.roundCap,
-                  endCap: Cap.roundCap,
+          (kIsWeb && !map_loader.isGoogleMapsInitialized())
+              ? Container(
+                  color: const Color(0xFF1E293B),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    map_loader.hasGoogleMapsApiKey()
+                        ? 'Cargando mapa...'
+                        : 'No se pudo cargar el mapa. Configura GOOGLE_MAPS_API_KEY.',
+                    style: const TextStyle(color: Colors.white70),
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: clientLatLng,
+                    zoom: 14,
+                  ),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                    _animateMapToTech();
+                  },
+                  markers: markers,
+                  polylines: {
+                    if (_hasTracking && _polylinePoints.isNotEmpty)
+                      Polyline(
+                        polylineId: const PolylineId('route'),
+                        points: _polylinePoints,
+                        color: const Color(0xFF3B82F6),
+                        width: 5,
+                        startCap: Cap.roundCap,
+                        endCap: Cap.roundCap,
+                      ),
+                  },
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
                 ),
-            },
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-          ),
 
           // 2. Custom App Bar Floating on top
           Positioned(

@@ -18,6 +18,8 @@ import '../../features/emergencies/presentation/screens/technician_active_trip_s
 import '../../features/ai_assistant/presentation/screens/evidence_screen.dart';
 import '../../features/ai_assistant/presentation/screens/ai_chat_screen.dart';
 import '../../features/finance/presentation/screens/stripe_payment_screen.dart';
+import '../../features/scheduling/presentation/screens/citas_screen.dart';
+import '../../features/scheduling/presentation/screens/schedule_followup_screen.dart';
 
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -113,6 +115,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/technician/active-trip',
         builder: (context, state) => const TechnicianActiveTripScreen(),
+      ),
+      GoRoute(
+        path: '/citas',
+        builder: (context, state) => const CitasScreen(),
+      ),
+      GoRoute(
+        path: '/technician/schedule-followup',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return ScheduleFollowUpScreen(
+            incidentId: extra['incidentId']!,
+            vehicleId: extra['vehicleId']!,
+            sucursalId: extra['sucursalId']!,
+            tecnicoId: extra['tecnicoId'],
+          );
+        },
       ),
       GoRoute(
         path: '/',

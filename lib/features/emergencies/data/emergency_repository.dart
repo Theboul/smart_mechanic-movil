@@ -54,14 +54,14 @@ class EmergencyRepository {
     return IncidentResponse.fromJson(response.data);
   }
 
-  Future<IncidentResponse> registerBilling({
+  Future<void> registerBilling({
     required String id,
     required double total,
     required double labor,
     required double parts,
     required String observations,
   }) async {
-    final response = await _dio.post(
+    await _dio.post(
       '/api/v1/finance/emergencies/$id/billing',
       data: {
         'monto_total': total,
@@ -70,7 +70,6 @@ class EmergencyRepository {
         'observaciones': observations,
       },
     );
-    return IncidentResponse.fromJson(response.data);
   }
 
   Future<IncidentResponse> verifyTechnician(String id, String verificationCode) async {

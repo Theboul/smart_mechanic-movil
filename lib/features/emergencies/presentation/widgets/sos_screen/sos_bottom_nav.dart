@@ -24,7 +24,8 @@ class SosBottomNav extends StatelessWidget {
         children: [
           _buildNavItem(0, Icons.home_outlined, 'Inicio'),
           _buildNavItem(1, Icons.directions_car_outlined, 'Vehículos'),
-          _buildNavItem(2, Icons.history_outlined, 'Historial'),
+          _buildNavItem(2, Icons.calendar_month_outlined, 'Mis Citas'),
+          _buildNavItem(3, Icons.history_outlined, 'Historial'),
         ],
       ),
     );

@@ -17,6 +17,7 @@ import '../widgets/sos_screen/active_emergency_status.dart';
 import '../../../garage/presentation/providers/vehicle_provider.dart';
 import '../../../ai_assistant/presentation/providers/evidence_provider.dart';
 
+import '../../../scheduling/presentation/providers/scheduling_provider.dart';
 import '/core/services/socket_service.dart';
 
 class SosScreen extends ConsumerStatefulWidget {
@@ -70,6 +71,10 @@ class _SosScreenState extends ConsumerState<SosScreen>
           type == 'STATUS_UPDATE' ||
           type == 'WS_CONNECTED') {
         ref.read(emergencyNotifierProvider.notifier).refreshStatus();
+      }
+      if (type == 'APPOINTMENT_UPDATED') {
+        ref.invalidate(myAppointmentsProvider);
+        ref.invalidate(workshopAppointmentsProvider);
       }
     });
   }
@@ -344,6 +349,9 @@ class _SosScreenState extends ConsumerState<SosScreen>
             context.go('/garage');
           }
           if (index == 2) {
+            context.go('/citas');
+          }
+          if (index == 3) {
             context.go('/history');
           }
         },

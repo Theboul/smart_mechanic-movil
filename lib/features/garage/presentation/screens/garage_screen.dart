@@ -52,6 +52,9 @@ class GarageScreen extends ConsumerWidget {
                 context.go('/');
               }
               if (index == 2) {
+                context.go('/citas');
+              }
+              if (index == 3) {
                 context.go('/history');
               }
             },

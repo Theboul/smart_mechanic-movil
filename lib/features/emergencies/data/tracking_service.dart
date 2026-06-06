@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:dio/dio.dart';
 import 'emergency_repository.dart';
 
 final trackingServiceProvider = Provider<TrackingService>((ref) {
@@ -63,6 +64,13 @@ class TrackingService {
       );
     } catch (e) {
       debugPrint('❌ GPS: Error al transmitir: $e');
+      if (e is DioException) {
+        final statusCode = e.response?.statusCode;
+        if (statusCode == 400 || statusCode == 404) {
+          debugPrint('🛰️ GPS: Deteniendo tracking automáticamente por respuesta del servidor: $statusCode');
+          stopTracking();
+        }
+      }
     }
   }
 

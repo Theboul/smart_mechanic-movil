@@ -32,6 +32,7 @@ class IncidentResponse {
   final String vehicleId;
   final String? workshopId;
   final String? technicianId;
+  final String? sucursalId;
   final String? workshopName;
   final String? technicianName;
   final String? technicianPhone;
@@ -66,6 +67,7 @@ class IncidentResponse {
     required this.vehicleId,
     this.workshopId,
     this.technicianId,
+    this.sucursalId,
     this.workshopName,
     this.technicianName,
     this.technicianPhone,
@@ -101,6 +103,7 @@ class IncidentResponse {
       vehicleId: json['id_vehiculo'] as String,
       workshopId: json['id_taller'] as String?,
       technicianId: json['id_tecnico'] as String?,
+      sucursalId: json['id_sucursal'] as String?,
       workshopName: json['workshop_name'] as String?,
       technicianName: json['technician_name'] as String?,
       technicianPhone: json['technician_phone'] as String?,

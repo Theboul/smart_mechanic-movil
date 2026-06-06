@@ -10,8 +10,11 @@ import 'core/router/app_router.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/services/notification_service.dart';
+import 'core/utils/map_loader.dart' as map_loader;
+import 'package:intl/date_symbol_data_local.dart';
 
 final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
 
 class MyHttpOverrides extends dart_io.HttpOverrides {
   @override
@@ -25,6 +28,8 @@ class MyHttpOverrides extends dart_io.HttpOverrides {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('es', null);
+  map_loader.initGoogleMaps();
 
   // Capturar errores de Flutter
   FlutterError.onError = (details) {

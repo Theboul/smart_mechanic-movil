@@ -54,10 +54,11 @@ class HistoryScreen extends ConsumerWidget {
         ],
       ),
       bottomNavigationBar: SosBottomNav(
-        currentIndex: 2,
+        currentIndex: 3,
         onTap: (index) {
           if (index == 0) context.go('/');
           if (index == 1) context.go('/garage');
+          if (index == 2) context.go('/citas');
         },
       ),
     );
