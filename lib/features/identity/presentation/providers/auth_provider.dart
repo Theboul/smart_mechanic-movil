@@ -1,13 +1,11 @@
 import 'dart:developer';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../../core/local_storage/secure_storage_provider.dart';
 import '../../data/auth_repository.dart';
 import '../../domain/user.dart';
-//import '../../../garage/presentation/providers/vehicle_provider.dart';
-//import '../../../emergencies/presentation/providers/emergency_provider.dart';
-//import '../../../ai_assistant/presentation/providers/evidence_provider.dart';
-
-//import '../../../ai_assistant/presentation/providers/chat_provider.dart';
-import '../../../../core/local_storage/secure_storage_provider.dart';
 
 enum AuthStatus { authenticated, unauthenticated, initial }
 
@@ -41,14 +39,22 @@ class AuthNotifier extends Notifier<AuthState> {
   Future<void> _checkToken() async {
     try {
       final user = await ref.read(authRepositoryProvider).getMe();
-      state = state.copyWith(status: AuthStatus.authenticated, user: user);
-    } catch (e) {
-      state = state.copyWith(status: AuthStatus.unauthenticated);
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: user,
+        errorMessage: null,
+      );
+    } catch (_) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        user: null,
+        errorMessage: null,
+      );
     }
   }
 
   Future<void> login(String email, String password) async {
-    state = state.copyWith(status: AuthStatus.initial);
+    state = state.copyWith(status: AuthStatus.initial, errorMessage: null);
     try {
       final tokenSchema = await ref
           .read(authRepositoryProvider)
@@ -58,24 +64,34 @@ class AuthNotifier extends Notifier<AuthState> {
         user: tokenSchema.user,
         errorMessage: null,
       );
-    } catch (e) {
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      log('LOGIN ERROR: $statusCode ${e.message}');
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: 'Error al iniciar sesión: Verifique sus credenciales',
+        errorMessage:
+            statusCode == 401
+                ? 'Credenciales incorrectas. Verifica tu correo y contrasena.'
+                : 'No se pudo conectar con el servidor. Verifica la red y la URL de la API.',
+      );
+    } catch (e) {
+      log('LOGIN ERROR: $e');
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        errorMessage: 'No se pudo iniciar sesion. Intenta de nuevo.',
       );
     }
   }
 
   Future<void> register(UserCreate userCreate) async {
-    state = state.copyWith(status: AuthStatus.initial);
+    state = state.copyWith(status: AuthStatus.initial, errorMessage: null);
     try {
       await ref.read(authRepositoryProvider).register(userCreate);
       await login(userCreate.correo, userCreate.contrasena);
     } catch (e) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage:
-            'Error en el registro: Correo ya en uso o datos inválidos',
+        errorMessage: 'Error en el registro. Revisa los datos e intenta de nuevo.',
       );
     }
   }
@@ -84,42 +100,40 @@ class AuthNotifier extends Notifier<AuthState> {
     try {
       final user = await ref.read(authRepositoryProvider).updateMe(update);
       state = state.copyWith(user: user, errorMessage: null);
-    } catch (e) {
+    } catch (_) {
       state = state.copyWith(errorMessage: 'Error al actualizar el perfil');
     }
   }
 
   Future<void> logout() async {
-    log('🔄 AUTH: Iniciando proceso de logout...');
+    log('AUTH: iniciando logout');
     try {
       await ref.read(authRepositoryProvider).logout();
-      log('✅ AUTH: Logout en servidor (FCM) exitoso');
+      log('AUTH: logout remoto completado');
     } catch (e) {
-      log('⚠️ AUTH: Error al notificar logout al servidor (ignorado): $e');
+      log('AUTH: logout remoto fallo pero se continua localmente: $e');
     }
     await _clearLocalData();
   }
 
   Future<void> forceLogout() async {
-    log('🚨 AUTH: Forzando logout local...');
+    log('AUTH: force logout local');
     await _clearLocalData();
   }
 
   Future<void> _clearLocalData() async {
-    log('🧹 AUTH: Limpiando datos locales...');
-
-    // 1. Borrar token físicamente
     try {
       final storage = ref.read(secureStorageProvider);
       await storage.delete(key: 'jwt_token');
-      log('🗑️ AUTH: Token borrado de SecureStorage');
+      log('AUTH: token eliminado de secure storage');
     } catch (e) {
-      log('❌ AUTH: Error al borrar token: $e');
+      log('AUTH: error al borrar token: $e');
     }
 
-    // 2. Cambiar estado (Esto dispara la redirección del router)
-    // Los proveedores que hacen ref.watch(authProvider) se invalidarán solos.
-    state = state.copyWith(status: AuthStatus.unauthenticated, user: null);
-    log('🚪 AUTH: Sesión cerrada localmente. Estado: unauthenticated');
+    state = state.copyWith(
+      status: AuthStatus.unauthenticated,
+      user: null,
+      errorMessage: null,
+    );
   }
 }

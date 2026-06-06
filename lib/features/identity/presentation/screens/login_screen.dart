@@ -34,10 +34,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     if (mounted) {
       final authState = ref.read(authProvider);
-      if (authState.errorMessage != null) {
-        _showSnackBar(authState.errorMessage!, Colors.redAccent);
-      } else {
+      if (authState.status == AuthStatus.authenticated) {
         _showSnackBar('Sesión iniciada correctamente.', Colors.blueAccent);
+      } else {
+        _showSnackBar(
+          authState.errorMessage ??
+              'No se pudo iniciar sesión. Verifica tus credenciales e intenta de nuevo.',
+          Colors.redAccent,
+        );
       }
       setState(() => _isLoading = false);
     }

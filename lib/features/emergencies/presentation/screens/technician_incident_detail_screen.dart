@@ -202,6 +202,43 @@ class _TechnicianIncidentDetailScreenState extends ConsumerState<TechnicianIncid
                                 'Comentarios',
                                 incident.descripcion ?? 'Sin descripción',
                               ),
+                              if (incident.origen == 'COTIZACION' || incident.idCotizacionOrigen != null) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.greenAccent.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.24)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Origen de cotización',
+                                        style: TextStyle(
+                                          color: Colors.greenAccent,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Este incidente fue generado desde una cotización seleccionada.',
+                                        style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13),
+                                      ),
+                                      if (incident.idCotizacionOrigen != null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Cotización origen: ${incident.idCotizacionOrigen}',
+                                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

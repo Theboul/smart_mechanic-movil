@@ -35,6 +35,27 @@ class _ScheduleFollowUpScreenState extends ConsumerState<ScheduleFollowUpScreen>
   bool _assignToMe = true;
   bool _isSaving = false;
 
+  bool _isSelectableDay(DateTime date) {
+    return DateUtils.dateOnly(date).weekday != DateTime.sunday;
+  }
+
+  DateTime? _findFirstSelectableDate({
+    required DateTime start,
+    required DateTime end,
+  }) {
+    var cursor = DateUtils.dateOnly(start);
+    final last = DateUtils.dateOnly(end);
+
+    while (!cursor.isAfter(last)) {
+      if (_isSelectableDay(cursor)) {
+        return cursor;
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+
+    return null;
+  }
+
   @override
   void dispose() {
     _motivoController.dispose();
@@ -450,12 +471,43 @@ class _ScheduleFollowUpScreenState extends ConsumerState<ScheduleFollowUpScreen>
   }
 
   Future<void> _selectDate() async {
+    final now = DateUtils.dateOnly(DateTime.now());
+    final firstDate = now;
+    final lastDate = DateUtils.dateOnly(now.add(const Duration(days: 7)));
+    final requestedInitial = DateUtils.dateOnly(
+      _selectedDate ?? now.add(const Duration(days: 1)),
+    );
+
+    final safeInitialDate =
+        !requestedInitial.isBefore(firstDate) &&
+            !requestedInitial.isAfter(lastDate) &&
+            _isSelectableDay(requestedInitial)
+        ? requestedInitial
+        : _findFirstSelectableDate(
+            start: requestedInitial.isBefore(firstDate)
+                ? firstDate
+                : requestedInitial,
+            end: lastDate,
+          ) ??
+            _findFirstSelectableDate(start: firstDate, end: lastDate);
+
+    if (safeInitialDate == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay fechas disponibles para agendar en este momento.'),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+      return;
+    }
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 7)),
-      selectableDayPredicate: (date) => date.weekday != DateTime.sunday,
+      initialDate: safeInitialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      selectableDayPredicate: _isSelectableDay,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(

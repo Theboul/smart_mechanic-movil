@@ -20,6 +20,9 @@ import '../../features/ai_assistant/presentation/screens/ai_chat_screen.dart';
 import '../../features/finance/presentation/screens/stripe_payment_screen.dart';
 import '../../features/scheduling/presentation/screens/citas_screen.dart';
 import '../../features/scheduling/presentation/screens/schedule_followup_screen.dart';
+import '../../features/quotations/domain/quotation.dart';
+import '../../features/quotations/presentation/screens/quotations_screen.dart';
+import '../../features/quotations/presentation/screens/quotation_request_detail_screen.dart';
 
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -119,6 +122,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/citas',
         builder: (context, state) => const CitasScreen(),
+      ),
+      GoRoute(
+        path: '/quotations',
+        builder: (context, state) => const QuotationsScreen(),
+      ),
+      GoRoute(
+        path: '/quotations/requests/:requestId',
+        builder: (context, state) {
+          final requestId = state.pathParameters['requestId'] ?? '';
+          final extra = state.extra;
+          return QuotationRequestDetailScreen(
+            requestId: requestId,
+            initialRequest: extra is QuotationRequestSummary ? extra : null,
+          );
+        },
       ),
       GoRoute(
         path: '/technician/schedule-followup',

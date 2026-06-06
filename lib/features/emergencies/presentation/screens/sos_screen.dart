@@ -32,13 +32,13 @@ class _SosScreenState extends ConsumerState<SosScreen>
   String? _selectedVehicleId;
   StreamSubscription<Map<String, dynamic>>? _socketSubscription;
   bool _minimizeEmergency = false;
+  bool _socketConnectionRequested = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (!kIsWeb) _requestPermissions();
-    _startWebSocket();
   }
 
   @override
@@ -58,6 +58,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
 
   void _startWebSocket() {
     // Conectar WebSocket y suscribirnos a las actualizaciones de estado
+    if (_socketSubscription != null) return;
     ref.read(socketServiceProvider).connect();
     _socketSubscription = ref.read(socketServiceProvider).messages.listen((message) {
       debugPrint('🔔 SOS_SCREEN WebSocket event: $message');
@@ -77,6 +78,26 @@ class _SosScreenState extends ConsumerState<SosScreen>
         ref.invalidate(workshopAppointmentsProvider);
       }
     });
+  }
+
+  void _syncWebSocketWithIncident(IncidentResponse? activeIncident) {
+    if (activeIncident != null) {
+      if (_socketSubscription == null && !_socketConnectionRequested) {
+        _socketConnectionRequested = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _socketSubscription != null) return;
+          _startWebSocket();
+        });
+      }
+      return;
+    }
+
+    _socketConnectionRequested = false;
+    if (_socketSubscription != null) {
+      _socketSubscription?.cancel();
+      _socketSubscription = null;
+      ref.read(socketServiceProvider).disconnect();
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -214,6 +235,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
     });
 
     final activeIncident = emergencyState.value;
+    _syncWebSocketWithIncident(activeIncident);
     if (activeIncident == null) {
       _minimizeEmergency = false;
     }
@@ -369,6 +391,24 @@ class _SosScreenState extends ConsumerState<SosScreen>
           onVehicleChanged: (val) => setState(() => _selectedVehicleId = val),
         ),
         const SizedBox(height: 30),
+        SizedBox(
+          width: 240,
+          child: OutlinedButton.icon(
+            onPressed: () => context.push('/quotations'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.blueAccent.withValues(alpha: 0.7)),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            icon: const Icon(Icons.receipt_long_rounded, color: Colors.blueAccent),
+            label: const Text(
+              'Solicitar cotización',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
         EmergencyButton(emergencyState: emergencyState, onTap: _handleSos),
         const SizedBox(height: 15),
         const Text(

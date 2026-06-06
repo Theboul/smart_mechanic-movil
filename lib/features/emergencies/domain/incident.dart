@@ -53,6 +53,8 @@ class IncidentResponse {
   final double? manoDeObra;
   final double? repuestos;
   final String? observaciones;
+  final String? origen;
+  final String? idCotizacionOrigen;
 
   final String? clientName;
   final String? clientPhone;
@@ -95,6 +97,8 @@ class IncidentResponse {
     this.manoDeObra,
     this.repuestos,
     this.observaciones,
+    this.origen,
+    this.idCotizacionOrigen,
   });
 
   factory IncidentResponse.fromJson(Map<String, dynamic> json) {
@@ -131,6 +135,8 @@ class IncidentResponse {
       manoDeObra: _toDouble(json['mano_de_obra']),
       repuestos: _toDouble(json['repuestos']),
       observaciones: json['observaciones'] as String?,
+      origen: json['origen'] as String?,
+      idCotizacionOrigen: json['id_cotizacion_origen'] as String?,
     );
   }
 }

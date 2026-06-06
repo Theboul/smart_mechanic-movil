@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'dart:developer';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/local_storage/secure_storage_provider.dart';
@@ -20,6 +21,7 @@ class AuthRepository {
       : _dio = dio, _storage = storage;
 
   Future<TokenSchema> login(String email, String password) async {
+    log('LOGIN REQUEST: ${_dio.options.baseUrl}/api/v1/identity/auth/login');
     final response = await _dio.post(
       '/api/v1/identity/auth/login',
       data: {
@@ -27,7 +29,8 @@ class AuthRepository {
         'contrasena': password,
       },
     );
-    
+
+    log('LOGIN RESPONSE: ${response.statusCode}');
     final tokenSchema = TokenSchema.fromJson(response.data);
     await _storage.write(key: 'jwt_token', value: tokenSchema.accessToken);
     return tokenSchema;
