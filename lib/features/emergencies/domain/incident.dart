@@ -55,6 +55,9 @@ class IncidentResponse {
   final String? observaciones;
   final String? origen;
   final String? idCotizacionOrigen;
+  final String? identificadorLocal;
+  final String? origenRegistro;
+  final String? fechaSincronizacion;
 
   final String? clientName;
   final String? clientPhone;
@@ -99,6 +102,9 @@ class IncidentResponse {
     this.observaciones,
     this.origen,
     this.idCotizacionOrigen,
+    this.identificadorLocal,
+    this.origenRegistro,
+    this.fechaSincronizacion,
   });
 
   factory IncidentResponse.fromJson(Map<String, dynamic> json) {
@@ -137,6 +143,35 @@ class IncidentResponse {
       observaciones: json['observaciones'] as String?,
       origen: json['origen'] as String?,
       idCotizacionOrigen: json['id_cotizacion_origen'] as String?,
+      identificadorLocal: json['identificador_local'] as String?,
+      origenRegistro: json['origen_registro'] as String?,
+      fechaSincronizacion: json['fecha_sincronizacion'] as String?,
+    );
+  }
+}
+
+class OfflineIncidentSyncResponse {
+  final bool synced;
+  final bool duplicated;
+  final String incidentId;
+  final String estadoIncidente;
+  final String identificadorLocal;
+
+  OfflineIncidentSyncResponse({
+    required this.synced,
+    required this.duplicated,
+    required this.incidentId,
+    required this.estadoIncidente,
+    required this.identificadorLocal,
+  });
+
+  factory OfflineIncidentSyncResponse.fromJson(Map<String, dynamic> json) {
+    return OfflineIncidentSyncResponse(
+      synced: json['synced'] == true,
+      duplicated: json['duplicated'] == true,
+      incidentId: json['id_incidente'] as String,
+      estadoIncidente: json['estado_incidente'] as String,
+      identificadorLocal: json['identificador_local'] as String,
     );
   }
 }

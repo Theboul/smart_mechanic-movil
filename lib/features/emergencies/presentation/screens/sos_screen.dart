@@ -16,6 +16,8 @@ import '../widgets/sos_screen/sos_visual_elements.dart';
 import '../widgets/sos_screen/active_emergency_status.dart';
 import '../../../garage/presentation/providers/vehicle_provider.dart';
 import '../../../ai_assistant/presentation/providers/evidence_provider.dart';
+import '../../../emergencies_offline/domain/offline_emergency_draft.dart';
+import '../../../emergencies_offline/presentation/providers/offline_emergency_provider.dart';
 
 import '../../../scheduling/presentation/providers/scheduling_provider.dart';
 import '/core/services/socket_service.dart';
@@ -39,6 +41,10 @@ class _SosScreenState extends ConsumerState<SosScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (!kIsWeb) _requestPermissions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(offlineEmergencyDraftsProvider.notifier).syncPendingDrafts();
+    });
   }
 
   @override
@@ -52,6 +58,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // Al volver a la app, forzar un refresco inmediato del estado
+      ref.read(offlineEmergencyDraftsProvider.notifier).syncPendingDrafts();
       ref.read(emergencyNotifierProvider.notifier).refreshStatus();
     }
   }
@@ -60,13 +67,15 @@ class _SosScreenState extends ConsumerState<SosScreen>
     // Conectar WebSocket y suscribirnos a las actualizaciones de estado
     if (_socketSubscription != null) return;
     ref.read(socketServiceProvider).connect();
-    _socketSubscription = ref.read(socketServiceProvider).messages.listen((message) {
+    _socketSubscription = ref.read(socketServiceProvider).messages.listen((
+      message,
+    ) {
       debugPrint('🔔 SOS_SCREEN WebSocket event: $message');
       final type = message['type'];
-      if (type == 'ANALYSIS_COMPLETED' || 
-          type == 'EMERGENCY_ASSIGNED' || 
-          type == 'SLOT_FILLING_REQUIRED' || 
-          type == 'PAYMENT_CONFIRMED' || 
+      if (type == 'ANALYSIS_COMPLETED' ||
+          type == 'EMERGENCY_ASSIGNED' ||
+          type == 'SLOT_FILLING_REQUIRED' ||
+          type == 'PAYMENT_CONFIRMED' ||
           type == 'NEW_INCIDENT' ||
           type == 'STATUS_UPDATED' ||
           type == 'STATUS_UPDATE' ||
@@ -107,14 +116,14 @@ class _SosScreenState extends ConsumerState<SosScreen>
     await Permission.microphone.request();
     await Future.delayed(const Duration(milliseconds: 300));
     await Permission.camera.request();
-    
+
     if (!kIsWeb) {
       await Future.delayed(const Duration(milliseconds: 300));
       await Permission.photos.request();
     }
   }
 
-  void _handleSos() {
+  Future<void> _handleSos() async {
     if (_selectedVehicleId == null) {
       final vehiclesAsync = ref.read(vehicleListProvider);
       vehiclesAsync.whenData((vehicles) {
@@ -131,7 +140,20 @@ class _SosScreenState extends ConsumerState<SosScreen>
       );
       return;
     }
-    ref.read(emergencyNotifierProvider.notifier).sendSOS(_selectedVehicleId!);
+    try {
+      final result = await ref
+          .read(emergencyNotifierProvider.notifier)
+          .sendSOS(_selectedVehicleId!);
+      if (result == EmergencySubmissionResult.offlineSaved) {
+        _showSnackBar(
+          'Emergencia guardada sin conexion. La enviaremos automaticamente cuando vuelva internet.',
+          Colors.orangeAccent,
+        );
+        await ref.read(offlineEmergencyDraftsProvider.notifier).refreshDrafts();
+      }
+    } catch (_) {
+      // El listener global del provider ya muestra el error online.
+    }
   }
 
   void _showSnackBar(String message, Color color) {
@@ -149,6 +171,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final emergencyState = ref.watch(emergencyNotifierProvider);
+    final offlineDraftsState = ref.watch(offlineEmergencyDraftsProvider);
 
     // Escuchar cambios en la emergencia
     ref.listen(emergencyNotifierProvider, (previous, next) {
@@ -158,8 +181,12 @@ class _SosScreenState extends ConsumerState<SosScreen>
           // 1. Detección de nuevo SOS enviado
           if (incident != null &&
               previous is AsyncLoading &&
-              (incident.estado == 'PENDIENTE' || incident.estado == 'BUSCANDO_TALLER')) {
-            _showSnackBar('SOS iniciado. Agrega evidencias para completar el reporte.', Colors.blueAccent);
+              (incident.estado == 'PENDIENTE' ||
+                  incident.estado == 'BUSCANDO_TALLER')) {
+            _showSnackBar(
+              'SOS iniciado. Agrega evidencias para completar el reporte.',
+              Colors.blueAccent,
+            );
             context.push('/evidence', extra: {'incidentId': incident.id});
           }
 
@@ -167,20 +194,26 @@ class _SosScreenState extends ConsumerState<SosScreen>
           if (incident == null && previous?.value != null) {
             ref.invalidate(evidenceProvider);
             setState(() => _minimizeEmergency = false);
-            
+
             final oldIncident = previous!.value!;
             final oldStatus = oldIncident.estado;
             final obs = oldIncident.observaciones ?? '';
             final isEfectivo = obs.startsWith('[EFECTIVO]');
-            
+
             if (isEfectivo) {
               _showEfectivoSuccessDialog(context);
-            } else if (oldStatus == 'EN_PROGRESO' || oldStatus == 'EN_CAMINO' || oldStatus == 'ASIGNADO' || oldStatus == 'EN_ATENCION') {
+            } else if (oldStatus == 'EN_PROGRESO' ||
+                oldStatus == 'EN_CAMINO' ||
+                oldStatus == 'ASIGNADO' ||
+                oldStatus == 'EN_ATENCION') {
               _showSuccessDialog(context, oldIncident.id);
             } else if (oldStatus == 'FINALIZADO') {
               // Si ya se pagó por stripe, StripePaymentScreen muestra su propio dialog de éxito, no hacemos nada aquí
             } else {
-              _showSnackBar('La emergencia ha finalizado o fue cancelada.', Colors.orangeAccent);
+              _showSnackBar(
+                'La emergencia ha finalizado o fue cancelada.',
+                Colors.orangeAccent,
+              );
             }
           }
 
@@ -243,7 +276,8 @@ class _SosScreenState extends ConsumerState<SosScreen>
     if (activeIncident != null && !_minimizeEmergency) {
       return ActiveEmergencyStatus(
         incident: activeIncident,
-        onRefresh: () => ref.read(emergencyNotifierProvider.notifier).refreshStatus(),
+        onRefresh: () =>
+            ref.read(emergencyNotifierProvider.notifier).refreshStatus(),
         onMinimize: () => setState(() => _minimizeEmergency = true),
       );
     }
@@ -264,7 +298,7 @@ class _SosScreenState extends ConsumerState<SosScreen>
                           user: authState.user,
                           onProfileTap: () => context.push('/profile'),
                         ),
-                        _buildSosHome(emergencyState),
+                        _buildSosHome(emergencyState, offlineDraftsState),
                         const SizedBox(
                           height: 120,
                         ), // Espacio extra para scroll y evitar que el FAB tape botones
@@ -283,11 +317,17 @@ class _SosScreenState extends ConsumerState<SosScreen>
               child: GestureDetector(
                 onTap: () => setState(() => _minimizeEmergency = false),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E293B).withValues(alpha: 0.95),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3), width: 1.5),
+                    border: Border.all(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
+                      width: 1.5,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.4),
@@ -301,7 +341,9 @@ class _SosScreenState extends ConsumerState<SosScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                          color: const Color(
+                            0xFF3B82F6,
+                          ).withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -340,11 +382,15 @@ class _SosScreenState extends ConsumerState<SosScreen>
                       ),
                       const SizedBox(width: 8),
                       TextButton(
-                        onPressed: () => setState(() => _minimizeEmergency = false),
+                        onPressed: () =>
+                            setState(() => _minimizeEmergency = false),
                         style: TextButton.styleFrom(
                           backgroundColor: const Color(0xFF3B82F6),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -381,7 +427,10 @@ class _SosScreenState extends ConsumerState<SosScreen>
     );
   }
 
-  Widget _buildSosHome(AsyncValue<IncidentResponse?> emergencyState) {
+  Widget _buildSosHome(
+    AsyncValue<IncidentResponse?> emergencyState,
+    AsyncValue<List<OfflineEmergencyDraft>> offlineDraftsState,
+  ) {
     return Column(
       children: [
         const SosTitles(),
@@ -399,9 +448,14 @@ class _SosScreenState extends ConsumerState<SosScreen>
               foregroundColor: Colors.white,
               side: BorderSide(color: Colors.blueAccent.withValues(alpha: 0.7)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-            icon: const Icon(Icons.receipt_long_rounded, color: Colors.blueAccent),
+            icon: const Icon(
+              Icons.receipt_long_rounded,
+              color: Colors.blueAccent,
+            ),
             label: const Text(
               'Solicitar cotización',
               style: TextStyle(fontWeight: FontWeight.bold),
@@ -415,7 +469,146 @@ class _SosScreenState extends ConsumerState<SosScreen>
           'Pulsa para reportar emergencia',
           style: TextStyle(color: Colors.grey, fontSize: 12),
         ),
+        const SizedBox(height: 24),
+        _buildOfflineDraftsSection(offlineDraftsState),
       ],
+    );
+  }
+
+  Widget _buildOfflineDraftsSection(
+    AsyncValue<List<OfflineEmergencyDraft>> offlineDraftsState,
+  ) {
+    return offlineDraftsState.when(
+      data: (drafts) {
+        if (drafts.isEmpty) return const SizedBox.shrink();
+
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111827).withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Emergencias pendientes de sincronizacion',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Estos reportes se enviaran al backend cuando detectemos conexion real.',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 14),
+              for (final draft in drafts)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F2937),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          draft.description,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Estado: ${draft.syncStatus} · Intentos: ${draft.syncAttempts}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (draft.lastError?.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            draft.lastError!,
+                            style: const TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 11,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => ref
+                                    .read(
+                                      offlineEmergencyDraftsProvider.notifier,
+                                    )
+                                    .retrySync(draft.localId),
+                                child: const Text('Reintentar'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextButton(
+                                onPressed: draft.syncStatus == 'SYNCING'
+                                    ? null
+                                    : () => ref
+                                          .read(
+                                            offlineEmergencyDraftsProvider
+                                                .notifier,
+                                          )
+                                          .deleteDraft(draft.localId),
+                                child: const Text('Eliminar'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await ref
+                        .read(offlineEmergencyDraftsProvider.notifier)
+                        .syncPendingDrafts();
+                    await ref
+                        .read(emergencyNotifierProvider.notifier)
+                        .refreshStatus();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('SINCRONIZAR AHORA'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: CircularProgressIndicator(color: Colors.orangeAccent),
+      ),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 
@@ -452,10 +645,10 @@ class _SosScreenState extends ConsumerState<SosScreen>
                 // Limpiar cualquier rastro de la emergencia anterior
                 ref.invalidate(emergencyNotifierProvider);
                 ref.invalidate(evidenceProvider);
-                
+
                 // 1. Cerrar el diálogo usando su propio contexto
                 Navigator.of(dialogContext).pop();
-                
+
                 // 2. Navegar usando el contexto de la pantalla principal (que sigue vivo)
                 context.push('/payment', extra: {'incidentId': incidentId});
               },
@@ -490,7 +683,10 @@ class _SosScreenState extends ConsumerState<SosScreen>
             SizedBox(height: 10),
             Text(
               '¡Servicio Completado!',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),

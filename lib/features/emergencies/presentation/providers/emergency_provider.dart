@@ -1,33 +1,41 @@
 import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:smart_mechanic_app/core/local_storage/secure_storage_provider.dart';
+
+import '../../../ai_assistant/presentation/providers/evidence_provider.dart';
+import '../../../emergencies_offline/presentation/providers/offline_emergency_provider.dart';
+import '../../../identity/presentation/providers/auth_provider.dart';
 import '../../data/emergency_repository.dart';
 import '../../domain/incident.dart';
-import '../../../identity/presentation/providers/auth_provider.dart';
-import '../../../ai_assistant/presentation/providers/evidence_provider.dart';
 
-final emergencyNotifierProvider = AsyncNotifierProvider<EmergencyNotifier, IncidentResponse?>(() {
-  return EmergencyNotifier();
-});
+final emergencyNotifierProvider =
+    AsyncNotifierProvider<EmergencyNotifier, IncidentResponse?>(() {
+      return EmergencyNotifier();
+    });
+
+enum EmergencySubmissionResult { onlineCreated, offlineSaved }
 
 class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
   @override
   FutureOr<IncidentResponse?> build() async {
-    // Al iniciar o cambiar de cuenta, verificamos si hay un incidente activo
     final authState = ref.watch(authProvider);
     if (authState.status != AuthStatus.authenticated) return null;
-    
-    return await _checkActiveIncident();
+    return _checkActiveIncident();
   }
 
   Future<IncidentResponse?> _checkActiveIncident() async {
     try {
-      final active = await ref.read(emergencyRepositoryProvider).getActiveIncident();
+      final active = await ref
+          .read(emergencyRepositoryProvider)
+          .getActiveIncident();
       if (active == null) return null;
 
       final storage = ref.read(secureStorageProvider);
-      final isCompleted = await storage.read(key: 'locally_completed_${active.id}');
+      final isCompleted = await storage.read(
+        key: 'locally_completed_${active.id}',
+      );
       if (isCompleted == 'true') {
         return null;
       }
@@ -39,33 +47,36 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
 
   Future<void> refreshStatus() async {
     if (ref.read(authProvider).status != AuthStatus.authenticated) return;
-    
+
     if (state.value == null) {
-      // Si no hay nada en el estado, intentamos buscar si hay uno activo (polling de seguridad)
       final active = await _checkActiveIncident();
-      if (active != null) state = AsyncValue.data(active);
+      if (active != null) {
+        state = AsyncValue.data(active);
+      }
       return;
     }
-    
+
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).getActiveIncident();
-      
-      // Si el incidente ya no está activo (null), reseteamos el estado para permitir nuevos SOS
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .getActiveIncident();
       if (updated == null) {
         state = const AsyncValue.data(null);
         return;
       }
 
       final storage = ref.read(secureStorageProvider);
-      final isCompleted = await storage.read(key: 'locally_completed_${updated.id}');
+      final isCompleted = await storage.read(
+        key: 'locally_completed_${updated.id}',
+      );
       if (isCompleted == 'true') {
         state = const AsyncValue.data(null);
         return;
       }
 
       state = AsyncValue.data(updated);
-    } catch (e) {
-      // Ignoramos errores de red en el polling silencioso
+    } catch (_) {
+      // Silent polling failure.
     }
   }
 
@@ -75,46 +86,63 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
     state = const AsyncValue.data(null);
   }
 
-  Future<void> sendSOS(String vehicleId, {String? description}) async {
+  Future<EmergencySubmissionResult> sendSOS(
+    String vehicleId, {
+    String? description,
+  }) async {
+    final previousState = state;
     state = const AsyncValue.loading();
-    
-    try {
-      Position? position;
-      try {
-        position = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.medium,
-            timeLimit: Duration(seconds: 5),
-          ),
-        );
-      } catch (e) {
-        position = await Geolocator.getLastKnownPosition() ?? 
-          Position(
-            latitude: -17.7833, 
-            longitude: -63.1821, 
-            timestamp: DateTime.now(), 
-            accuracy: 0, 
-            altitude: 0, 
-            heading: 0, 
-            speed: 0, 
-            speedAccuracy: 0,
-            altitudeAccuracy: 0,
-            headingAccuracy: 0,
-          );
-      }
 
+    try {
+      final position = await _resolvePosition();
       final create = IncidentCreate(
         vehicleId: vehicleId,
-        descripcion: description ?? 'S.O.S generado desde la app móvil',
+        descripcion: description ?? 'S.O.S generado desde la app movil',
         latitud: position.latitude,
         longitud: position.longitude,
         prioridad: 'CRITICA',
       );
 
-      final response = await ref.read(emergencyRepositoryProvider).reportIncident(create);
+      final canReachBackend = await ref
+          .read(offlineConnectivityServiceProvider)
+          .canReachBackend();
+      if (!canReachBackend) {
+        await ref
+            .read(offlineEmergencyDraftsProvider.notifier)
+            .createOfflineDraft(incident: create);
+        state = previousState;
+        return EmergencySubmissionResult.offlineSaved;
+      }
+
+      final response = await ref
+          .read(emergencyRepositoryProvider)
+          .reportIncident(create);
       state = AsyncValue.data(response);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+      return EmergencySubmissionResult.onlineCreated;
+    } catch (error, stack) {
+      if (_looksLikeConnectivityError(error)) {
+        try {
+          final fallbackPosition = await Geolocator.getLastKnownPosition();
+          final draft = IncidentCreate(
+            vehicleId: vehicleId,
+            descripcion: description ?? 'S.O.S generado desde la app movil',
+            latitud: fallbackPosition?.latitude ?? -17.7833,
+            longitud: fallbackPosition?.longitude ?? -63.1821,
+            prioridad: 'CRITICA',
+          );
+          await ref
+              .read(offlineEmergencyDraftsProvider.notifier)
+              .createOfflineDraft(incident: draft);
+          state = previousState;
+          return EmergencySubmissionResult.offlineSaved;
+        } catch (_) {
+          state = AsyncValue.error(error, stack);
+          rethrow;
+        }
+      }
+
+      state = AsyncValue.error(error, stack);
+      rethrow;
     }
   }
 
@@ -124,18 +152,20 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
       await ref.read(emergencyRepositoryProvider).cancelIncident(incidentId);
       ref.invalidate(evidenceProvider);
       state = const AsyncValue.data(null);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
     }
   }
 
   Future<void> updateStatus(String incidentId, String nuevoEstado) async {
     state = const AsyncValue.loading();
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).updateIncidentStatus(incidentId, nuevoEstado);
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .updateIncidentStatus(incidentId, nuevoEstado);
       state = AsyncValue.data(updated);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
       rethrow;
     }
   }
@@ -143,10 +173,12 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
   Future<void> verifyTechnician(String incidentId, String code) async {
     state = const AsyncValue.loading();
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).verifyTechnician(incidentId, code);
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .verifyTechnician(incidentId, code);
       state = AsyncValue.data(updated);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
       rethrow;
     }
   }
@@ -154,10 +186,12 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
   Future<void> validateVerificationCode(String incidentId, String code) async {
     state = const AsyncValue.loading();
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).validateVerificationCode(incidentId, code);
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .validateVerificationCode(incidentId, code);
       state = AsyncValue.data(updated);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
       rethrow;
     }
   }
@@ -165,10 +199,12 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
   Future<void> rejectTechnician(String incidentId) async {
     state = const AsyncValue.loading();
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).rejectTechnician(incidentId);
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .rejectTechnician(incidentId);
       state = AsyncValue.data(updated);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
       rethrow;
     }
   }
@@ -176,11 +212,46 @@ class EmergencyNotifier extends AsyncNotifier<IncidentResponse?> {
   Future<void> rejectTechnicianVerification(String incidentId) async {
     state = const AsyncValue.loading();
     try {
-      final updated = await ref.read(emergencyRepositoryProvider).rejectTechnicianVerification(incidentId);
+      final updated = await ref
+          .read(emergencyRepositoryProvider)
+          .rejectTechnicianVerification(incidentId);
       state = AsyncValue.data(updated);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (error, stack) {
+      state = AsyncValue.error(error, stack);
       rethrow;
     }
+  }
+
+  Future<Position> _resolvePosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      return await Geolocator.getLastKnownPosition() ??
+          Position(
+            latitude: -17.7833,
+            longitude: -63.1821,
+            timestamp: DateTime.now(),
+            accuracy: 0,
+            altitude: 0,
+            heading: 0,
+            speed: 0,
+            speedAccuracy: 0,
+            altitudeAccuracy: 0,
+            headingAccuracy: 0,
+          );
+    }
+  }
+
+  bool _looksLikeConnectivityError(Object error) {
+    final message = error.toString();
+    return message.contains('SocketException') ||
+        message.contains('Connection') ||
+        message.contains('connection') ||
+        message.contains('timed out');
   }
 }
